@@ -28,8 +28,9 @@ coverage.*
 # NuGet
 *.nupkg
 *.snupkg
-packages/
+**/packages/*
 !**/packages/build/
+!**/packages/build/**
 
 # .NET local tools / generated artifacts
 artifacts/
