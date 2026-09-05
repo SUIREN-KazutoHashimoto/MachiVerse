@@ -1,18 +1,26 @@
 # AGENTS.md
 
-## Project
+## プロジェクト
 
-MachiVerse is a C# project for a very large-scale agent-based simulation.
+MachiVerse は、C# で開発する超大規模エージェントベースシミュレーションのプロジェクトです。
 
-## Working Rules
+## 作業ルール
 
-1. Do not start coding, editing source files, creating implementation files, or otherwise changing the implementation unless the user explicitly instructs you to do so.
-2. Discussion, requirements gathering, architecture design, research, estimation, and planning must remain separate from implementation unless implementation is explicitly requested.
-3. Do not infer simulation requirements that the user has not specified. Clearly distinguish user-provided requirements from proposals or assumptions.
-4. Agent-based simulation is an approved architectural direction for MachiVerse, but concrete agent types, behaviors, domains, scale targets, performance constraints, and simulation rules must be defined from explicit requirements or clearly presented as proposals.
-5. Before making repository changes, confirm that the requested change itself is authorized. Do not treat broad project goals as authorization for unrelated implementation work.
-6. Record future project-specific operating rules in this AGENTS.md so they remain visible to subsequent development work.
+1. ユーザーから明示的な実装指示がない限り、コーディング、ソースファイル編集、実装ファイル作成、その他の実装変更を開始しないこと。
+2. 議論、要件整理、アーキテクチャ設計、調査、見積もり、計画は、実装が明示的に依頼されない限り実装作業と分離すること。
+3. ユーザーが指定していないシミュレーション要件を勝手に推測して確定事項として扱わないこと。ユーザーから提示された要件と、提案・仮定を明確に区別すること。
+4. MachiVerse はエージェントベースシミュレーションを採用する。ただし、具体的なエージェント種別、挙動、対象領域、規模目標、性能要件、シミュレーションルールは、明示された要件に基づいて定義するか、提案として明確に提示すること。
+5. リポジトリへ変更を加える前に、その変更自体がユーザーから許可された範囲に含まれることを確認すること。プロジェクト全体の目的を、無関係な実装変更の許可として解釈しないこと。
+6. 今後追加されるプロジェクト固有の運用ルールは、この AGENTS.md に追記し、後続の開発作業から参照できる状態にすること。
 
-## Priority
+## 言語ルール
 
-When any proposed action conflicts with these rules, stop before implementation and return to discussion or planning until the user gives an explicit implementation instruction.
+1. このリポジトリは日本語を基準言語とする。
+2. README、設計書、仕様書、運用手順、開発ガイド、ADR、Issue テンプレート、Pull Request テンプレートなど、ドキュメント関係は原則として日本語で作成すること。
+3. ドキュメント内の説明文、見出し、注釈も原則として日本語とする。
+4. 技術用語、API 名、クラス名、メソッド名、ライブラリ名、規格名など、英語表記が自然または必要なものは無理に日本語化しないこと。
+5. 英語版ドキュメントを作成する場合は、ユーザーから明示的な指示がある場合に限る。
+
+## 優先順位
+
+提案または実行しようとしている作業がこのルールと競合する場合は、実装前に停止し、ユーザーから明示的な実装指示または方針変更があるまで、議論・要件整理・計画に戻ること。
