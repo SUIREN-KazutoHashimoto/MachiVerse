@@ -28,7 +28,7 @@ Gateway コンポーネントの開発ロードマップを管理します。
 - [ ] Gateway↔Administration View Protocolを詳細化する
 - [ ] 認証・認可方式を設計する
 - [ ] 要求集約・競合調停方式を設計する
-- [ ] Master Gatewayの選出・障害時再選出方式を設計する
+- [ ] Simulation CoreからのMaster Gateway選出・変更通知を受信し、Gateway側で接続先・役割を安全に切り替える方式を設計する
 - [ ] 参照キャッシュと公開遅延バッファの同期方式を設計する
 - [ ] 外部Config項目を定義する
 - [ ] アドオン拡張を考慮した責務境界を設計する
