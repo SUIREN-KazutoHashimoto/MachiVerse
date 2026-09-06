@@ -1,5 +1,5 @@
 name: 不具合報告
-description: MachiVerse の不具合を報告します
+description: MachiVerse の再現可能な不具合を報告します
 title: "[Bug] "
 labels: []
 body:
@@ -7,6 +7,24 @@ body:
     attributes:
       value: |
         報告ありがとうございます。再現性と影響範囲を確認できる情報を記載してください。
+        セキュリティ上の問題や、公開すると危険な情報を含む場合はこのフォームを使わず `SECURITY.md` の手順に従ってください。
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 対象コンポーネント
+      description: 主に問題が発生している領域を選択してください。
+      options:
+        - Simulation Core
+        - Gateway
+        - View
+        - Administration View
+        - Protocol
+        - Documentation / Repository maintenance
+        - Add-on / Integration
+        - 不明 / 複数
+    validations:
+      required: true
 
   - type: textarea
     id: summary
@@ -21,6 +39,10 @@ body:
     attributes:
       label: 再現手順
       description: 問題を再現できる手順を記載してください。
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
     validations:
       required: true
 
@@ -44,18 +66,20 @@ body:
     id: environment
     attributes:
       label: 環境
-      description: OS、.NET、ブランチ、コミットなど、分かる範囲で記載してください。
+      description: OS、ランタイム、ブラウザ、ブランチ、コミットなど、再現に必要な情報を分かる範囲で記載してください。
 
   - type: textarea
-    id: additional
+    id: logs
     attributes:
-      label: 補足
-      description: ログ、スクリーンショット、関連Issueなどがあれば記載してください。
+      label: ログ・追加情報
+      description: 機密情報を除いたログ、スクリーンショット、関連Issue等があれば記載してください。
 
   - type: checkboxes
-    id: security
+    id: confirmation
     attributes:
       label: 確認
       options:
         - label: セキュリティ上の機密情報を含む報告ではありません
+          required: true
+        - label: 既存Issueを確認し、同一内容の報告がないことを確認しました
           required: true
