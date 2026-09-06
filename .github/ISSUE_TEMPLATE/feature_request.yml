@@ -1,8 +1,31 @@
 name: 機能・設計提案
-description: 新機能、改善、設計変更を提案します
+description: 実装候補として具体化した新機能、改善、設計変更を提案します
 title: "[Proposal] "
 labels: []
 body:
+  - type: markdown
+    attributes:
+      value: |
+        アイデア段階の相談や、まだ実装対象として整理されていない議論は GitHub Discussions を利用してください。
+        このIssueに記載された内容だけを根拠として、未承認の仕様を確定事項として扱うことはありません。
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 対象コンポーネント
+      description: 主な対象を選択してください。
+      options:
+        - Simulation Core
+        - Gateway
+        - View
+        - Administration View
+        - Protocol
+        - Documentation / Repository maintenance
+        - Add-on / Integration
+        - 複数コンポーネント
+    validations:
+      required: true
+
   - type: textarea
     id: background
     attributes:
@@ -20,10 +43,18 @@ body:
       required: true
 
   - type: textarea
-    id: scope
+    id: design-docs
     attributes:
-      label: 影響範囲
-      description: 影響しそうなコンポーネント、設計書、プロトコル等を分かる範囲で記載してください。
+      label: 関連する設計書・Protocol
+      description: 関連する `docs/architecture/`、`docs/protocols/`、ROADMAP等があれば記載してください。分からない場合はその旨を記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: 責務境界・互換性への影響
+      description: コンポーネント境界、Protocol互換性、決定論、性能などに影響がある場合は記載してください。
 
   - type: textarea
     id: alternatives
@@ -43,4 +74,6 @@ body:
       label: 確認
       options:
         - label: このIssueは提案であり、承認前の内容を確定仕様として扱わないことを理解しています
+          required: true
+        - label: 既存Issue・Discussionを確認し、同一内容の提案がないことを確認しました
           required: true

@@ -29,11 +29,12 @@ MachiVerse は、C# で開発する超大規模エージェントベースの世
 以下のブランチを常設ブランチとして扱う。
 
 - `main`: 安定版・リリース可能な状態を保持する。通常の実装作業を直接行わない。
-- `develop`: 全コンポーネントを統合した次期版を保持する。通常の機能実装や修正を直接行わない。
+- `develop`: 全コンポーネントおよび共通ドキュメントを統合した次期版を保持する。通常の機能実装や修正を直接行わない。
 - `simulation`: シミュレーションコアの統合ブランチ。
 - `gateway`: ゲートウェイの統合ブランチ。
 - `view`: 一般ビューの統合ブランチ。
 - `administration-view`: 管理ビューの統合ブランチ。
+- `documentation`: リポジトリ共通のドキュメント・設計文書・Protocol文書の統合ブランチ。
 
 ブランチ名は原則として小文字を使用し、複数語はハイフンで区切る。
 
@@ -42,8 +43,9 @@ MachiVerse は、C# で開発する超大規模エージェントベースの世
 1. 機能追加、修正、リファクタリング等の作業は、対象コンポーネントの常設ブランチから作業ブランチを作成して行う。
 2. 作業ブランチで完了した変更は、対象コンポーネントの常設ブランチへ Pull Request で統合する。
 3. コンポーネント単位で `develop` へ統合可能な状態になった変更は、対象コンポーネントブランチから `develop` へ Pull Request で統合する。
-4. `develop` がリリース可能な状態になった場合、`develop` から `main` へ Pull Request で統合する。
-5. `main`、`develop`、各コンポーネント常設ブランチ上で、通常の機能実装・修正を直接コミットしないこと。
+4. リポジトリ共通のドキュメント変更は `documentation` から作業ブランチを作成して行い、作業ブランチから `documentation`、`documentation` から `develop` の順に Pull Request で統合する。
+5. `develop` がリリース可能な状態になった場合、`develop` から `main` へ Pull Request で統合する。
+6. `main`、`develop`、各コンポーネント常設ブランチ、`documentation` 上で、通常の機能実装・修正・ドキュメント編集を直接コミットしないこと。
 
 基本的な流れは以下とする。
 
@@ -52,10 +54,29 @@ main
   ↑
 develop
   ↑
-component branch
+responsibility branch
   ↑
 work branch
 ```
+
+ここで `responsibility branch` は、対象に応じて `simulation`、`gateway`、`view`、`administration-view`、`documentation` のいずれかを指す。
+
+### ドキュメント編集フロー
+
+1. `README`、`CONTRIBUTING.md`、`SUPPORT.md`、`docs/architecture/`、`docs/protocols/` その他のリポジトリ共通ドキュメントは、原則として `documentation` の責任分野として扱う。
+2. 共通ドキュメントを編集する場合は `documentation` から `docs/` 接頭辞の作業ブランチを作成し、Pull Request で `documentation` へ統合する。
+3. `documentation` 上で統合・レビュー可能な状態になった変更は、`documentation` から `develop` へ Pull Request で統合する。
+4. 各コンポーネント固有の実装コードと不可分なドキュメントがある場合でも、責任分野をまたぐ修正を同一作業ブランチへ無断で含めず、必要に応じて別Issue・別Pull Requestへ分離する。
+5. `.github/workflows/` はドキュメントではなくリポジトリ共通のCI / Workflow資産として扱い、後述のCI / Workflow運用ルールを優先する。
+
+### 別責任分野への修正依頼
+
+1. 作業中に、現在の作業ブランチとは別の常設ブランチが責任を持つファイル・設計・実装の修正が必要になった場合、原則として現在の作業ブランチからその責任分野へ直接変更を加えないこと。
+2. 別責任分野の修正が必要な場合は GitHub Issue を作成し、修正が必要な理由、期待する変更、影響範囲、関連する設計文書・Protocol・Issue・Pull Request等を記載して、対象責任分野へ依頼すること。
+3. 依頼された修正は、対象責任分野の常設ブランチから独立した作業ブランチを作成して対応し、対象の常設ブランチへ Pull Request で統合すること。
+4. 1つの要求が複数の責任分野へ影響する場合も、Issueを連携点として各責任分野の作業を分離し、複数責任分野の実装や文書を1つの作業ブランチへ無断でまとめないこと。
+5. Protocolや正本となる設計文書の変更が必要な場合は、実装側で先に契約を変更せず、Issueを通して `documentation` 側へ変更を依頼し、正本の更新が `develop` へ統合された後に各コンポーネント側で追従すること。
+6. 緊急対応その他の理由で責任分野をまたぐ変更を1つの作業として扱う必要がある場合は、例外として黙示的に実施せず、事前にユーザーから明示的な承認を得ること。
 
 ### 作業ブランチ命名
 
@@ -68,25 +89,30 @@ work branch
 - `refactor/simulation-threading`
 - `docs/core-concurrency`
 
-接頭辞や名称は作業内容を明確に表現し、必要以上にコンポーネントをまたぐ変更を1ブランチへ含めない。
+接頭辞や名称は作業内容を明確に表現し、必要以上にコンポーネントや責任分野をまたぐ変更を1ブランチへ含めない。
 
 ### プロトコル変更
 
 コンポーネント間プロトコルを変更する場合は、実装変更より先にプロトコル設計書を更新する。
 
-1. `develop` を基準として、プロトコル変更専用の作業ブランチを作成する。
-2. `docs/protocols` 配下の該当設計書を先に変更する。
-3. プロトコル変更を `develop` へ統合する。
-4. 各コンポーネントは、それぞれのコンポーネントブランチから独立した作業ブランチを作成し、更新されたプロトコル設計書へ追従する。
-5. プロトコル変更を理由に、複数コンポーネントの実装コードを1つの共有作業ブランチへまとめない。
+1. Protocol変更の必要性を確認した責任分野は、変更理由、影響範囲、必要な契約変更をIssueとして `documentation` 側へ依頼する。
+2. `documentation` を基準として、プロトコル変更専用の `docs/` 作業ブランチを作成する。
+3. `docs/protocols` 配下の該当設計書を先に変更し、Pull Requestで `documentation` へ統合する。
+4. Protocol変更を `documentation` から `develop` へ Pull Request で統合する。
+5. 各コンポーネントは、それぞれのコンポーネントブランチから独立した作業ブランチを作成し、`develop` へ統合された更新済みプロトコル設計書へ追従する。
+6. プロトコル変更を理由に、複数コンポーネントの実装コードを1つの共有作業ブランチへまとめない。
 
 例:
 
 ```text
-develop
+component responsibility
+  ↓ Issue
+documentation
   ↓
-protocol/core-gateway-v1.1
-  ↓
+docs/core-gateway-v1.1
+  ↓ PR
+documentation
+  ↓ PR
 develop
 
 simulation
@@ -108,6 +134,14 @@ feature/support-core-gateway-v1.1
 
 具体的な同期頻度や merge / rebase の採用方針は現時点では固定しない。
 
+### documentation と develop の同期
+
+`documentation` を `develop` から長期間乖離させないこと。
+
+コンポーネント統合やリポジトリ共通運用の変更によりドキュメントの前提が更新された場合は、ドキュメント作業と矛盾しないタイミングで `develop` の変更を `documentation` へ取り込み、正本となる文書が古い統合状態を前提にし続けないようにする。
+
+具体的な同期頻度や merge / rebase の採用方針は現時点では固定しない。
+
 ### ブランチ境界とコンポーネント独立性
 
 ブランチ運用でもコンポーネント完全分離の原則を維持する。
@@ -116,6 +150,7 @@ feature/support-core-gateway-v1.1
 - `gateway`、`view`、`administration-view` についても同様とする。
 - 複数コンポーネント間の契約変更はプロトコル設計書を介して連携する。
 - 並行開発時に各コンポーネントが同一実装ファイルを編集しなければならない構造を作らない。
+- コンポーネント側から `documentation` の責任分野を直接編集すること、および `documentation` 側から各コンポーネントの実装責任分野を直接編集することを通常フローにしない。
 
 ## CI / Workflow 運用ルール
 
@@ -131,7 +166,7 @@ feature/support-core-gateway-v1.1
 1. リポジトリ共通のCI / Workflowを追加・変更・削除する場合は、原則として `develop` から専用作業ブランチを作成する。
 2. Workflow用作業ブランチは `ci/` 接頭辞を使用する。
 3. Workflow変更は作業ブランチから `develop` への Pull Request で統合する。
-4. `main`、`develop`、各コンポーネント常設ブランチへWorkflow変更を直接コミットしない。
+4. `main`、`develop`、`documentation`、各コンポーネント常設ブランチへWorkflow変更を直接コミットしない。
 5. 特定コンポーネントだけを対象とするCIであっても、`.github/workflows` がリポジトリ共通領域である以上、Workflow定義そのものは `develop` 基準の `ci/` ブランチで管理する。
 
 例:
