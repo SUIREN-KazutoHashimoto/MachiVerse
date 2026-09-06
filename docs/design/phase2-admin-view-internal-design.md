@@ -1,6 +1,6 @@
 # 詳細設計 Phase 2: Admin View内部設計
 
-Status: In Progress  
+Status: Complete / Phase 2 reviewed  
 Tracking: Issue #14  
 Parent: `docs/design/phase2-component-internal-design.md`
 
@@ -65,7 +65,9 @@ ManagementTargetProjection {
 
 TargetCatalogはGateway/protocolから確認されたtargetだけをcurrentとして表示する。
 
-component management reachabilityの最終routing方式が今後変わっても、Admin Viewのinternal controllerはprotocol target abstractionへ依存する。
+Phase 2最終レビューにより、Admin Viewからのexternal management入口はGatewayに固定し、management target routingのcomponent-level ownerもGatewayとする。
+
+Admin Viewのinternal controllerはprotocol target abstractionへ依存し、未定義targetへdirect internal accessでfallbackしない。
 
 ## 5. health / status / metrics flow
 
@@ -251,6 +253,8 @@ AuditViewModelでは少なくとも次を相関できる。
 
 Admin View local historyはauthoritative audit storeではない。
 
+server-side audit authorityはGatewayのactor/session/authorization/routing factと、target componentのexecution factへ分割する。Admin Viewは両者を相関表示する。
+
 local cacheを消してもserver-side audit factは変化しない。
 
 ## 12. Addon management boundary
@@ -401,6 +405,8 @@ operator action auditのauthorityはserver-side protocol対象であり、client
 - exact command catalog
 - high-impact category/multi-person approval UX
 - audit backend/retention
-- component management reachability routing
+- component management downstream payload/routing detail
 - addon installation standardization
 - UI framework
+
+最終component間ownershipとcompletion判定は `phase2-cross-component-review.md` を正本とする。
