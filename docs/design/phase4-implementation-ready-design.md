@@ -93,59 +93,91 @@ Phase 3 completion reviewで、次をPhase 4のconcrete design対象として引
 
 Domain payload内部の数値model・solver・domain-specific secondary indexはP4-05へ引き渡す。
 
-### P4-02 Protocol正式schema / error catalog — In Progress
+### P4-02 Protocol正式schema / error catalog — Complete
 
-成果物: `phase4-protocol-schema.md`
+成果物:
 
-確定済み:
+- `phase4-protocol-schema.md`
+- `phase4-auth-session-protocol.md`
+- `phase4-protocol-payload-catalog.md`
+- `phase4-protocol-completion-review.md`
+
+確定事項:
 
 - standard wire serialization: Protocol Buffers proto3
 - internal Core↔Gateway / Gateway↔Gateway: gRPC bidirectional stream
-- Web General View / Admin View: binary WebSocket
+- Web General View / Admin View: TLS binary WebSocket
 - common `WireEnvelopeV1` field number/type/validation
 - 8 MiB envelope limitとcommon structural limit
 - uint64のbrowser lossless mapping rule
 - handshake / version / Capability common wire schema
 - common Result / RetryAdvice / ErrorCode registry
-- state publication FULL/DELTA chunking base schema
+- state publication FULL/DELTA chunking schema
 - Standard Operation / Batch / status query base schema
-- 4 protocol initial message registry
+- Gateway registration/heartbeat/Master role message
+- Batch ACK / custody state
+- View subscription / projection / resync schema
+- Admin health/log/Config/audit wire schema
+- OIDC Authorization Code + PKCE / Gateway BFF session profile
+- General View role / Admin permission domain分離
+- message-by-message required Capability mapping
 
-未決定:
+P4-02 completion reviewでprotocol-level unresolved blocker 0件を確認した。
 
-- exact auth credential/session payload
-- role/permission matrix
-- Core/Gateway heartbeat/election physical messages
-- batch ACK/result detail fields
-- View subscription/projection field registry
-- Admin health/log/config/audit exact fields
-- standard OperationKind payload catalog
-- message-by-message required Capability matrix
+World-domain固有Operation payloadはP4-05、Config値はP4-03、Metric/Log/Audit registryはP4-07へownershipどおり引き渡す。
 
-### P4-03 Config specification — Planned
+### P4-03 Config specification — In Progress
 
-予定成果物: `phase4-config-specification.md`
+成果物: `phase4-config-specification.md`
 
+確定済み:
+
+- 4 component Config schema `1.0`
 - component別TOML key一覧
 - exact type / default / min / max / enum
 - SIMULATION / OPERATIONAL / PRESENTATION classification
-- RUNTIME_SAFE / RESTART_REQUIRED / WORLD_REGENERATION_REQUIRED
+- RUNTIME_SAFE / RESTART_REQUIRED / WORLD_REGENERATION_REQUIRED boundary
 - effective Step / atomic apply boundary
-- domain detail threshold / cadence / hysteresis
-- migration / unknown key policy
+- Core scheduling/detail/snapshot/publication/Master/queue values
+- 8 domain D0〜D3 cadence baseline
+- Gateway network/queue/publication/cache/auth/session values
+- General/Admin View presentation/operational values
+- ConfigGeneration / default completion / restore / migration/error rules
 
-### P4-04 Persistence / snapshot / history / migration — Planned
+残作業:
 
-予定成果物: `phase4-persistence-specification.md`
+- P4-04 persistence parametersとのcross-review
+- P4-06 performance measurementによるcadence/default再検証
+- P4-07 observability/audit retentionとのcross-review
+- canonical TOML sample追加
 
-- physical directory/file/database boundary
-- snapshot manifest / chunk / partition format
-- history record registryとpayload schema
-- hash chain / checksum / compression
-- candidate commit / fsync / atomic publish sequence
-- migration transaction / rollback
-- retention / compaction / dedup tombstone storage
-- recovery selection algorithm
+### P4-04 Persistence / snapshot / history / migration — In Progress
+
+成果物: `phase4-persistence-specification.md`
+
+確定済み:
+
+- SQLite 3 WAL + synchronous FULL standard profile
+- world/persistence generation directory layout
+- unsigned uint64のSQLite `U64BE` representation
+- history / operation dedup / scheduler / Config / operational state tables
+- Operation accepted/scheduled/transition commitのdurable transaction boundary
+- 97 domain + 6 core = 103 required logical Snapshot section
+- immutable snapshot manifest/chunk framing
+- Zstandard default compression
+- snapshot staging/fsync/atomic discovery sequence
+- recovery selection/replay algorithm
+- copy-on-write persistence generation migrationとCURRENT pointer
+
+残作業:
+
+- remaining history payload schema
+- SameStepOrderKey binary DB encoding
+- snapshot chunk splitting
+- historical replay retention default
+- compaction anchor/transaction
+- backup/export format
+- P4-06 performance cross-review
 
 ### P4-05 Domain algorithm / numeric / deterministic reduction — Planned
 
@@ -342,16 +374,16 @@ silent coercionでworld semanticsを変更しない。
 ## 12. 現在の進捗
 
 - P4-01: Complete
-- P4-02: In Progress
-- P4-03: Planned
-- P4-04: Planned
+- P4-02: Complete
+- P4-03: In Progress
+- P4-04: In Progress
 - P4-05: Planned
 - P4-06: Planned
 - P4-07: Planned
 - P4-08: Planned
 - P4-09: Planned
 
-Phase 4全体進捗目安: 30%。
+Phase 4全体進捗目安: 50%。
 
 blocker: なし。
 
