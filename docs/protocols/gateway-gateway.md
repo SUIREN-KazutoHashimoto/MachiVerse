@@ -4,6 +4,10 @@
 
 本protocolのownerはGatewayです。
 
+ProtocolIdは `mv.gateway-gateway` とする。
+
+共通 envelope / version / Capability / result / error / correlation contractは `docs/design/phase1-protocol-envelope.md` を正本とする。
+
 ## 2. 目的
 
 複数Gateway構成で、Coreが選出したMaster GatewayへGeneral View由来local Operation batchを安全・決定論的に集約し、Master切替、retry、result routing、login proxyを成立させるための契約です。
@@ -21,53 +25,63 @@
 - network arrival raceやthread completion orderだけでmerge orderを決めない。
 - Master failoverはlive migrationに耐える。
 
-## 4. Version / Capability
+## 4. Common envelope / Version / Capability
 
-- Major.Minor versioningを行う。
-- Major mismatchはconnection reject。
-- same Majorではnewer Minorがbackward compatibilityを維持する。
-- connect時にrequired/optional Capabilityを交換する。
-- Master candidateとして必要なCapability不足をsilentに許容しない。
-- Master切替やaddon状態変更でeffective Capabilityが変わり得る場合、安全にrenegotiateまたはreconnectする。
+normal messageは `ProtocolEnvelopeV1` の共通意味を持つ。
 
-Standard protocol上のaddon情報はconnection safety / compatibility用meta informationに限定し、addon functional payload/commandを本protocolへ載せません。
+- protocol id: `mv.gateway-gateway`
+- negotiated ProtocolVersionを明示する。
+- NegotiationGenerationを明示する。
+- MessageId / CorrelationId / CausationIdをtraceに使用できる。
+- Master authorityに依存するmessageではWorldContextV1のMasterGenerationを使用する。
+- Operation/Batch messageではOperationContextV1を使用する。
+- connect時にrequired / provided Capabilityを交換する。
+- Master候補として必要なCapability不足をsilentに許容しない。
+- connection中のCapability changeはreconnectを基本とする。
+
+Standard protocol上のaddon情報はconnection safety / compatibility用metadataに限定し、addon functional payload/commandを載せない。
 
 ## 5. Master identity / generation
 
-Gateway間通信は少なくとも意味上、次を識別できる必要があります。
+Gateway間通信は少なくとも次を識別できる必要がある。
 
 - Gateway identity
 - current Master identity
-- Master generation / epoch
+- MasterGeneration
 
-Coreがcurrent generationのauthorityです。
+Coreがcurrent generationのauthority。
 
 - old generation宛てのmessageをcurrentとして扱わない。
 - stale Masterから遅れて到着したoutput/resultをblind acceptしない。
 - Master不明時にnon-Masterが独断でCoreへGeneral View batchをdirect submitしない。
+- MasterGenerationは共通 `uint64` 契約を使用する。
 
-Exact identifier / generation formatは詳細設計で定義します。
+Gateway identityのconcrete representationは個別詳細設計で定義する。ComponentInstanceIdをGateway identityそのものとして扱わない。
 
 ## 6. Local Operation batch transfer
 
-Non-Master Gatewayはlocal authn/authz・aggregation・conflict mediation済みbatchをMasterへ送ります。
+Non-Master Gatewayはlocal authn/authz・aggregation・conflict mediation済みbatchをMasterへ送る。
 
-Local batchには少なくとも意味上、次を追跡できる必要があります。
+Local batchには少なくとも次を追跡できる必要がある。
 
 - source Gateway
-- target Master generation
-- local Batch ID
-- stable Operation ID
+- target MasterGeneration
+- local BatchId
+- stable OperationId / immutable payload digest
 - Operation type / target / content
 - deterministic orderingに必要なlogical information
-- candidate application time/Stepに必要なlogical information
+- candidate application Step / deadlineに必要なlogical information
 - result routing context
 
-正式fieldは詳細設計で定義します。
+共通規則:
+
+- target generationをWorldContext `master_generation` で明示する。
+- candidate Stepをauthoritative `effective_step` として表現しない。
+- retry時もOperationId / BatchId / immutable digestを維持する。
 
 ## 7. Batch receipt / acknowledgement
 
-Masterはlocal batchについて少なくとも次の状態を返却可能にします。
+Masterはlocal batchについて少なくとも次を返却可能にする。
 
 - accepted
 - rejected
@@ -76,7 +90,11 @@ Masterはlocal batchについて少なくとも次の状態を返却可能にし
 - incompatible capability/protocol
 - retryable temporary failure
 
-ACK lossでsenderがsame Batch/Operationをretryしてもworld outcomeを変えない契約にします。
+共通ResultStatus / stable code / RetryAdviceを使用する。
+
+ACKはGateway hop上の受理状態であり、Core authoritative world mutation成功を意味しない。
+
+ACK lossでsenderがsame Batch/Operationをretryしてもworld outcomeを変えない。
 
 ## 8. Stable Operation ID / idempotency
 
@@ -85,36 +103,39 @@ ACK lossでsenderがsame Batch/Operationをretryしてもworld outcomeを変え�
 - same Operation IDがworldへ二度影響しない。
 - Batch IDを用いてtransfer/ACKを追跡する。
 - Masterがduplicate local batchを受けてもduplicate Operationをnew requestとしてmergeしない。
+- MessageId / CorrelationIdをOperation dedup keyにしない。
+- same OperationIdで異なるimmutable digestは `protocol.operation-payload-mismatch` としてrejectする。
 
-Exact dedup retention/data structureは詳細設計で決定します。
+Exact dedup retention/data structureとexpiry後のresult semanticsはP1-06で定義する。
 
 ## 9. Deterministic merge
 
-Masterは自身を含む全Gatewayのlocal batchをdeterministicにmergeします。
+Masterは自身を含む全Gatewayのlocal batchをdeterministicにmergeする。
 
 - same effective Operation setならGateway count、source arrival timing、network latency、thread order、Master identityによらずsame logical merged orderを得る。
 - Gateway-level conflict mediationはexternal-request levelに限定する。
 - authoritative World StateをGatewayへ複製しsimulation ruleを再実装しない。
 - simulation-affecting Admin Operationを「Adminだから」という理由だけでGeneral Operationに対し無条件最優先にしない。
 
-Exact ordering key、priority relation、same-target merge/reject ruleは詳細設計で決定します。
+Core authoritative orderingはP1-02のSameStepOrderKeyに従う。Gateway local / cross-Gateway merge keyは個別詳細設計で定義するが、physical arrival orderをauthorityにしない。
 
-## 10. Candidate application time/Step
+## 10. Candidate application Step
 
-Gateway/Masterはprotocol ruleに従いcandidate application time/Stepに必要なlogical informationを扱います。
+Gateway/Masterはprotocol ruleに従いcandidate application Step / deadline情報を扱う。
 
 - physical arrival wall-clockをauthoritative application timeにしない。
 - reception deadline / grace / late statusを必要に応じ追跡する。
 - final valid application StepをCoreが確定する前提を壊さない。
 - late Operationはpast finalized Stepをretroactive rewriteしない。
+- WorldContext `effective_step` はCore確定済みresult等にのみ使用する。
 
-Wire fieldとdefer/reject semanticsの詳細はCore↔Gateway protocolと整合させて定義します。
+Exact candidate/deadline/grace fieldsとdefer/reject semanticsはP1-06でCore↔Gateway protocolと整合させて定義する。
 
 ## 11. Master failover
 
-Master利用不能時はCoreがnew Masterを選出します。
+Master利用不能時はCoreがnew Masterを選出する。
 
-Gateway↔Gateway protocolは次のsafe handoffを可能にします。
+Gateway↔Gateway protocolは次のsafe handoffを可能にする。
 
 - old Masterへsent済み / ACK不明local batch
 - old Masterがaccepted済み / Core submit status不明batch
@@ -122,66 +143,84 @@ Gateway↔Gateway protocolは次のsafe handoffを可能にします。
 - result未返却Operation
 - stale old-generation message
 
-New Masterへsame Operation ID/Batch contextで再送し、loss・duplicate applyを防ぎます。
+New Masterへsame OperationId / BatchId / immutable digestで再送し、loss・duplicate applyを防ぐ。
 
-Live migrationでも同じ意味論を維持します。
+Live migrationでも同じ意味論を維持する。
 
 ## 12. Failure detectionとの関係
 
-Master failure decisionのauthorityはCore側ですが、Gateway間通信は必要なhealth/response informationを提供可能にします。
+Master failure decisionのauthorityはCore側だが、Gateway間通信は必要なhealth/response informationを提供可能にする。
 
-- heartbeat / response delay等の具体方式は未確定。
+- heartbeat / response delay等の具体方式は個別詳細設計で定義する。
 - monitor interval、timeout、grace等の調整数値はConfig。
 - transient delayとfailureを区別する。
+- retry timingをworld orderingへ使用しない。
 
 ## 13. Result routing
 
-Core resultをMasterからsource Gatewayへ返却し、source Gatewayがoriginating user/session requestへ対応付けられる契約を持ちます。
+Core resultをMasterからsource Gatewayへ返却し、source Gatewayがoriginating user/session requestへ対応付けられる契約を持つ。
 
-Result routingでもOperation ID、Batch ID、generation等のcontextを利用可能にします。
-
-Stale generation resultをcurrent requestへ誤対応させないようにします。
+- CorrelationIdを可能な範囲でend-to-end維持する。
+- OperationId / BatchId / MasterGenerationをcontextとして利用する。
+- stale generation resultをcurrent requestへ誤対応させない。
+- Operation resultとGateway hop ACKを区別する。
 
 ## 14. Login proxy
 
-Q241に従い、General View / Admin View等からconnected Gatewayへ届いたlogin requestはMaster Gatewayへproxyし、Masterでlogin処理を確定します。
+Q241に従い、General View / Admin View等からconnected Gatewayへ届いたlogin requestはMaster Gatewayへproxyし、Masterでlogin処理を確定する。
 
 - non-Masterが独立に同じloginを最終確定しない。
 - Master change/live migrationでsession consistencyを壊さない。
 - old Master generationのauth stateをcurrent authorityとして誤使用しない。
+- login proxy request/resultもCorrelationIdで追跡可能にする。
 
-Credential/token/IdP/session storageの具体方式は未確定です。
+Credential/token/IdP/session storageの具体方式はauth詳細設計で決定する。
 
 ## 15. Addon meta information
 
-Connection safety/compatibility判定に必要なaddon identity/version/required Capability等のmeta情報はstandard protocolで交換可能です。
+Connection safety/compatibility判定に必要なAddonDescriptorV1相当のidentity/version/required-provided Capability/dependency metadataはstandard protocolで交換可能。
 
-Addon固有function dataをGateway間standard protocolへ載せません。必要な場合はaddon/framework側のadditional protocolの責務です。
+Addon固有function dataをGateway間standard protocolへ載せない。必要な場合はaddon/framework側additional protocolの責務。
 
 ## 16. 禁止事項
 
 - non-MasterのGeneral View batch Core direct submission
-- Major mismatchでnormal batch transfer
-- stale generationをcurrentとして扱うこと
+- incompatible negotiated versionでnormal batch transfer
+- stale NegotiationGenerationをcurrent semanticsとして扱うこと
+- stale MasterGenerationをcurrentとして扱うこと
 - stable Operation IDなしのretry
 - duplicate Operationのnew request化
+- MessageId / CorrelationIdをOperation dedup keyにすること
+- candidate Stepをauthoritative effective_stepとして扱うこと
 - network arrival orderだけでdeterministic mergeを決めること
 - Gatewayへauthoritative simulation ruleを複製すること
 - old Master auth/result stateのsilent authority化
 - addon functional payloadをstandard protocolに埋め込むこと
+- ACKをCore terminal successと同一視すること
 
 ## 17. 詳細設計へ残す事項
 
+P1-04で共通化済み:
+
+- common envelope / tracing identity
+- version / Capability handshake
+- NegotiationGeneration
+- common result/error/retry
+- MasterGeneration context
+- Operation immutable digest boundary
+
+残る個別事項:
+
 - physical transport / connection establishment
-- Gateway identity / generation representation
-- local batch wire schema
-- ACK/result message format
-- deterministic merge ordering key
+- serialization / compression
+- Gateway identity
+- local batch payload schema
+- Gateway local / cross-Gateway merge key
+- Batch ACK / partial progress state machine
 - retry timeout / interval / queue capacity
 - failover handoff messages
 - health signal
-- candidate Step / deadline fields
+- candidate Step / deadline / grace fields
 - auth mutual verification
-- login proxy message/session handoff
-- Capability / addon meta schema
-- compression
+- login proxy/session handoff
+- dedup retention
