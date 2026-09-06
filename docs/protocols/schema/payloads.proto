@@ -1,0 +1,402 @@
+syntax = "proto3";
+
+package machiverse.protocol.v1;
+
+option csharp_namespace = "MachiVerse.Protocol.V1";
+
+import "common.proto";
+import "auth.proto";
+
+// Canonical wire declaration for Standard Protocol v1 payloads.
+
+enum ComponentKindV1 {
+  COMPONENT_KIND_UNSPECIFIED = 0;
+  COMPONENT_KIND_SIMULATION_CORE = 1;
+  COMPONENT_KIND_GATEWAY = 2;
+  COMPONENT_KIND_GENERAL_VIEW = 3;
+  COMPONENT_KIND_ADMIN_VIEW = 4;
+}
+
+message ComponentTargetV1 {
+  ComponentKindV1 component_kind = 1;
+  optional bytes logical_instance_id = 2;
+}
+
+enum GatewayReadinessV1 {
+  GATEWAY_READINESS_UNSPECIFIED = 0;
+  GATEWAY_READINESS_STARTING = 1;
+  GATEWAY_READINESS_RESYNCING = 2;
+  GATEWAY_READINESS_READY = 3;
+  GATEWAY_READINESS_DEGRADED = 4;
+  GATEWAY_READINESS_DRAINING = 5;
+}
+
+message GatewayRegisterV1 {
+  bytes gateway_logical_id = 1;
+  bytes component_instance_id = 2;
+  uint64 last_known_master_generation = 3;
+  GatewayReadinessV1 readiness = 4;
+}
+
+message GatewayHeartbeatV1 {
+  bytes gateway_logical_id = 1;
+  bytes component_instance_id = 2;
+  GatewayReadinessV1 readiness = 3;
+  optional uint64 confirmed_basis_step = 4;
+  optional bytes confirmed_continuity_token = 5;
+  uint32 peer_connection_count = 6;
+  uint32 view_connection_count = 7;
+  uint32 admin_connection_count = 8;
+}
+
+enum GatewayRoleV1 {
+  GATEWAY_ROLE_UNSPECIFIED = 0;
+  GATEWAY_ROLE_NON_MASTER = 1;
+  GATEWAY_ROLE_MASTER = 2;
+  GATEWAY_ROLE_TRANSITION = 3;
+}
+
+message GatewayRoleStateV1 {
+  bytes gateway_logical_id = 1;
+  GatewayRoleV1 role = 2;
+  uint64 master_generation = 3;
+  optional bytes current_master_gateway_id = 4;
+}
+
+message PeerHeartbeatV1 {
+  bytes gateway_logical_id = 1;
+  bytes component_instance_id = 2;
+  uint64 observed_master_generation = 3;
+  GatewayReadinessV1 readiness = 4;
+}
+
+message MasterGenerationStateV1 {
+  uint64 master_generation = 1;
+  optional bytes current_master_gateway_id = 2;
+}
+
+enum LatePolicyWireV1 {
+  LATE_POLICY_UNSPECIFIED = 0;
+  LATE_POLICY_REJECT = 1;
+  LATE_POLICY_DEFER_WITHIN_GRACE = 2;
+}
+
+message OperationSchedulingPolicyWireV1 {
+  uint64 owner_config_generation = 1;
+  uint32 min_lead_steps = 2;
+  optional uint32 default_deadline_window_steps = 3;
+  uint32 grace_steps = 4;
+  LatePolicyWireV1 late_policy = 5;
+}
+
+enum BatchWireStatusV1 {
+  BATCH_WIRE_STATUS_UNSPECIFIED = 0;
+  BATCH_WIRE_STATUS_RECEIVED = 1;
+  BATCH_WIRE_STATUS_PARTIAL = 2;
+  BATCH_WIRE_STATUS_COMPLETE = 3;
+  BATCH_WIRE_STATUS_REJECTED = 4;
+}
+
+enum GatewayCustodyWireStateV1 {
+  GATEWAY_CUSTODY_UNSPECIFIED = 0;
+  GATEWAY_CUSTODY_SOURCE_HELD = 1;
+  GATEWAY_CUSTODY_MASTER_RECEIVED = 2;
+  GATEWAY_CUSTODY_CORE_ACCEPTED = 3;
+  GATEWAY_CUSTODY_TERMINAL = 4;
+}
+
+message BatchEntryAckV1 {
+  bytes operation_id = 1;
+  GatewayCustodyWireStateV1 custody_state = 2;
+  optional OperationLifecycleWireStateV1 core_state = 3;
+  optional ResultV1 result = 4;
+}
+
+message GatewayBatchAckV1 {
+  bytes batch_id = 1;
+  bytes batch_digest = 2;
+  BatchWireStatusV1 batch_status = 3;
+  repeated BatchEntryAckV1 entries = 4;
+  ResultV1 result = 5;
+}
+
+message OperationBatchEntryResultV1 {
+  bytes operation_id = 1;
+  bytes operation_payload_digest = 2;
+  OperationLifecycleWireStateV1 lifecycle = 3;
+  optional uint64 effective_step = 4;
+  ResultV1 result = 5;
+}
+
+message OperationBatchResultV1 {
+  bytes batch_id = 1;
+  bytes batch_digest = 2;
+  BatchWireStatusV1 status = 3;
+  repeated OperationBatchEntryResultV1 entries = 4;
+  ResultV1 result = 5;
+}
+
+message ViewSubscriptionRequestV1 {
+  bytes subscription_id = 1;
+  string projection_profile = 2;
+  repeated PartitionRecordRefWireV1 spatial_scope_refs = 3;
+  repeated string requested_record_kinds = 4;
+  bool prefer_delta = 5;
+}
+
+message PartitionRecordRefWireV1 {
+  string partition_id = 1;
+  bytes record_id = 2;
+}
+
+enum ProjectionMutationKindV1 {
+  PROJECTION_MUTATION_UNSPECIFIED = 0;
+  PROJECTION_MUTATION_UPSERT = 1;
+  PROJECTION_MUTATION_DELETE = 2;
+}
+
+message ProjectionRecordV1 {
+  string record_schema_id = 1;
+  SchemaVersionWireV1 record_schema_version = 2;
+  bytes record_id = 3;
+  uint64 record_revision = 4;
+  ProjectionMutationKindV1 mutation_kind = 5;
+  bytes payload = 6;
+}
+
+message ProjectionChunkPayloadV1 {
+  bytes subscription_id = 1;
+  bytes publication_id = 2;
+  uint32 chunk_index = 3;
+  repeated ProjectionRecordV1 records = 4;
+}
+
+enum ResyncWireStateV1 {
+  RESYNC_WIRE_STATE_UNSPECIFIED = 0;
+  RESYNC_WIRE_STATE_SYNCED = 1;
+  RESYNC_WIRE_STATE_SUSPECT = 2;
+  RESYNC_WIRE_STATE_RESYNCING = 3;
+}
+
+message ResyncStateV1 {
+  ResyncWireStateV1 state = 1;
+  optional uint64 last_confirmed_basis_step = 2;
+  optional bytes continuity_token = 3;
+  string reason_code = 4;
+}
+
+enum ParticipationBindingWireStatusV1 {
+  PARTICIPATION_BINDING_UNSPECIFIED = 0;
+  PARTICIPATION_BINDING_NONE = 1;
+  PARTICIPATION_BINDING_ACTIVE = 2;
+  PARTICIPATION_BINDING_RESIDENT_DECEASED = 3;
+  PARTICIPATION_BINDING_RELEASED = 4;
+  PARTICIPATION_BINDING_SUPERSEDED = 5;
+}
+
+message ParticipationBindingViewV1 {
+  optional bytes binding_id = 1;
+  optional bytes resident_id = 2;
+  ParticipationBindingWireStatusV1 status = 3;
+  optional uint64 effective_from_step = 4;
+  optional string absence_policy_profile = 5;
+}
+
+message ParticipationBindingRequestV1 {
+  bytes operation_id = 1;
+  bytes immutable_payload_digest = 2;
+  string preference_profile = 3;
+  repeated string preference_tokens = 4;
+}
+
+enum HealthStateV1 {
+  HEALTH_STATE_UNSPECIFIED = 0;
+  HEALTH_STATE_HEALTHY = 1;
+  HEALTH_STATE_DEGRADED = 2;
+  HEALTH_STATE_UNAVAILABLE = 3;
+  HEALTH_STATE_RESYNCING = 4;
+}
+
+message HealthQueryV1 {
+  repeated ComponentTargetV1 targets = 1;
+  repeated string metric_names = 2;
+}
+
+message LabelV1 {
+  string key = 1;
+  string value = 2;
+}
+
+message MetricValueV1 {
+  oneof value {
+    sint64 int_value = 1;
+    uint64 uint_value = 2;
+    double double_value = 3;
+    bool bool_value = 4;
+  }
+}
+
+message MetricSampleV1 {
+  string name = 1;
+  repeated LabelV1 labels = 2;
+  MetricValueV1 value = 3;
+  uint64 observed_at_unix_millis = 4;
+}
+
+enum HealthConditionSeverityV1 {
+  HEALTH_CONDITION_SEVERITY_UNSPECIFIED = 0;
+  HEALTH_CONDITION_SEVERITY_INFO = 1;
+  HEALTH_CONDITION_SEVERITY_WARNING = 2;
+  HEALTH_CONDITION_SEVERITY_ERROR = 3;
+  HEALTH_CONDITION_SEVERITY_CRITICAL = 4;
+}
+
+message HealthConditionV1 {
+  string code = 1;
+  HealthConditionSeverityV1 severity = 2;
+  string diagnostic = 3;
+}
+
+message ComponentHealthV1 {
+  ComponentTargetV1 target = 1;
+  HealthStateV1 health = 2;
+  repeated MetricSampleV1 metrics = 3;
+  repeated HealthConditionV1 conditions = 4;
+}
+
+message LogQueryV1 {
+  repeated ComponentTargetV1 targets = 1;
+  optional uint64 from_unix_millis = 2;
+  optional uint64 to_unix_millis = 3;
+  repeated string event_kinds = 4;
+  optional bytes correlation_id = 5;
+  optional bytes operation_id = 6;
+  optional uint64 basis_step = 7;
+  uint32 page_size = 8;
+  optional bytes cursor = 9;
+}
+
+enum LogSeverityV1 {
+  LOG_SEVERITY_UNSPECIFIED = 0;
+  LOG_SEVERITY_TRACE = 1;
+  LOG_SEVERITY_DEBUG = 2;
+  LOG_SEVERITY_INFORMATION = 3;
+  LOG_SEVERITY_WARNING = 4;
+  LOG_SEVERITY_ERROR = 5;
+  LOG_SEVERITY_CRITICAL = 6;
+}
+
+message KeyValueV1 {
+  string key = 1;
+  string value = 2;
+}
+
+message StructuredLogRecordV1 {
+  bytes record_id = 1;
+  uint64 timestamp_unix_millis = 2;
+  LogSeverityV1 severity = 3;
+  string event_kind = 4;
+  ComponentTargetV1 source = 5;
+  optional bytes correlation_id = 6;
+  optional bytes operation_id = 7;
+  optional bytes batch_id = 8;
+  optional uint64 simulation_step = 9;
+  repeated KeyValueV1 attributes = 10;
+  string diagnostic = 11;
+}
+
+message LogPageV1 {
+  repeated StructuredLogRecordV1 records = 1;
+  optional bytes next_cursor = 2;
+}
+
+message ConfigValueWireV1 {
+  oneof value {
+    bool bool_value = 1;
+    sint64 int_value = 2;
+    uint64 uint_value = 3;
+    double double_value = 4;
+    string string_value = 5;
+    bytes bytes_value = 6;
+  }
+}
+
+message ConfigReadRequestV1 {
+  ComponentTargetV1 target = 1;
+  repeated string keys = 2;
+}
+
+message ConfigEntryWireV1 {
+  string key = 1;
+  ConfigValueWireV1 effective_value = 2;
+  string impact = 3;
+  string mutability = 4;
+  bool sensitive = 5;
+}
+
+message ConfigReadResultV1 {
+  ResultV1 result = 1;
+  ComponentTargetV1 target = 2;
+  uint64 config_generation = 3;
+  bytes config_digest = 4;
+  repeated ConfigEntryWireV1 entries = 5;
+}
+
+message ConfigChangeEntryV1 {
+  string key = 1;
+  ConfigValueWireV1 value = 2;
+}
+
+message ConfigChangeRequestV1 {
+  ComponentTargetV1 target = 1;
+  bytes operation_id = 2;
+  bytes immutable_payload_digest = 3;
+  uint64 expected_base_generation = 4;
+  repeated ConfigChangeEntryV1 changes = 5;
+  optional uint64 requested_effective_step = 6;
+}
+
+message ConfigChangeResultV1 {
+  ResultV1 result = 1;
+  uint64 resulting_generation = 2;
+  bytes resulting_config_digest = 3;
+  optional uint64 effective_step = 4;
+}
+
+message OperationalCommandV1 {
+  ComponentTargetV1 target = 1;
+  string command_kind = 2;
+  optional bytes operation_id = 3;
+  optional bytes immutable_payload_digest = 4;
+  string payload_schema_id = 5;
+  SchemaVersionWireV1 payload_schema_version = 6;
+  bytes payload = 7;
+}
+
+message AuditQueryV1 {
+  optional uint64 from_unix_millis = 1;
+  optional uint64 to_unix_millis = 2;
+  repeated string audit_event_kinds = 3;
+  optional bytes operation_id = 4;
+  optional uint64 simulation_step = 5;
+  uint32 page_size = 6;
+  optional bytes cursor = 7;
+}
+
+message AuditRecordWireV1 {
+  bytes audit_record_id = 1;
+  uint64 timestamp_unix_millis = 2;
+  string audit_event_kind = 3;
+  bytes actor_account_ref = 4;
+  optional bytes operation_id = 5;
+  optional bytes immutable_payload_digest = 6;
+  optional uint64 simulation_step = 7;
+  string target_kind = 8;
+  string result_code = 9;
+  repeated KeyValueV1 attributes = 10;
+}
+
+message AuditPageV1 {
+  repeated AuditRecordWireV1 records = 1;
+  optional bytes next_cursor = 2;
+}
