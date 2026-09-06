@@ -1,6 +1,6 @@
 # 詳細設計 Phase 2: Simulation Core内部設計
 
-Status: In Progress  
+Status: Complete / Phase 2 reviewed  
 Tracking: Issue #14  
 Parent: `docs/design/phase2-component-internal-design.md`
 
@@ -303,7 +303,7 @@ STARTING/RECOVERING/RUNNING
 例:
 
 - publication経路の一部 unavailable
--一部Gateway接続喪失
+- 一部Gateway接続喪失
 - diagnostic exporter failure
 
 WorldState integrityとpersistence durabilityを維持できる場合のみ継続する。
