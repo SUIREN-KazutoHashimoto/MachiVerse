@@ -1,0 +1,45 @@
+title: "[Idea] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        まだ実装対象として確定していないアイデアや改善案を共有する場所です。
+        Discussionの内容だけを根拠として未承認仕様を確定しません。実装対象として整理された内容は、必要に応じてIssueや設計文書へ移します。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解決したいこと
+      description: どのような課題・目的・体験を改善したいか記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: アイデア
+      description: 現時点で考えている案を記載してください。実装方式が未確定でも構いません。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 関連しそうな領域
+      options:
+        - Simulation Core
+        - Gateway
+        - View
+        - Administration View
+        - Protocol
+        - Documentation / Repository maintenance
+        - Add-on / Integration
+        - 複数 / 不明
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 補足・検討事項
+      description: 代替案、懸念、関連資料等があれば記載してください。
