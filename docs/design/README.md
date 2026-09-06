@@ -56,10 +56,12 @@ Status: In Progress
 
 - `phase4-implementation-ready-design.md`
 - `phase4-core-data-structures.md`
+- `phase4-domain-state-registry.md`
+- `phase4-protocol-schema.md`
 
 Phase 4はIssue #16で管理し、Phase 1〜3で確定した意味契約を、実装者が追加の仕様解釈をほぼ必要としないconcrete data structure / schema / Config / persistence / algorithm / budget / observability / test / work breakdownへ落とし込む。
 
-Phase 4全体の作業分解と設計優先順位は `phase4-implementation-ready-design.md` を正本とする。P4-01では `phase4-core-data-structures.md` に共通value type、state partition layout、candidate state、index contractを定義する。後続P4成果物は作業完了に合わせて本indexへ追加する。
+Phase 4全体の作業分解と設計優先順位は `phase4-implementation-ready-design.md` を正本とする。P4-01の共通value type、state partition layout、candidate state、index contractは `phase4-core-data-structures.md`、Phase 3全97 authoritative partitionのstable registry/owner/schema/record layoutは `phase4-domain-state-registry.md` を正本とする。P4-02のwire serialization、transport、envelope field number、message registry、error catalogは `phase4-protocol-schema.md` で具体化する。
 
 ## 読み方
 
