@@ -84,7 +84,7 @@ Phase 4個別文書の作業途中Status/残作業記述と本書のcompletion�
 確定:
 
 - exact primitive width / ID / digest representation
-- WorldStateV1 / partition directory
+- `WorldStateV1` / partition directory
 - StepCandidate / PartitionCandidate
 - MutationIntent / DomainEvent / invariant result
 - CrossDomainTransactionCandidate
@@ -217,7 +217,7 @@ Phase 3主要17 semantic transactionをstable implementation tokenへ固定し�
 - promotion/demotion per-Step semantic budget
 - canonical deferral
 - Diver bound/active transaction floor
-- camera/FPS/wall-clock independence
+- camera/FPS/GPU/backend/wall-clock independence
 
 判定: PASS。
 
@@ -236,6 +236,8 @@ Reference 30Hz implementation targetを固定した。
 - worker 1/4/8/16 digest comparison
 
 performance不足をsemantic shortcutの根拠にしない。
+
+General View renderer backend performanceはpresentation budgetとして測定し、Core 30Hz authoritative budgetとは分離する。
 
 判定: PASS。
 
@@ -275,6 +277,24 @@ P4-08で次をmachine-testable criteriaへ変換した。
 - observability/security/fuzz
 - independent component contract test
 
+P4-09 platform acceptanceとしてさらにGeneral Viewで次を必須とする。
+
+```text
+view.render.webgpu-initialization
+view.render.webgpu-backend
+view.render.webgl2-fallback
+view.render.tsl-node-material
+view.render.backend-world-independence
+view.render.device-loss-recovery
+```
+
+Acceptance:
+
+- WebGPU対応環境では`THREE.WebGPURenderer`がWebGPU backendを使用する。
+- WebGPU非対応/forced fallback fixtureでは同じ`WebGPURenderer`がWebGL 2 backendで描画できる。
+- backend差でconfirmed state、Operation result、Core StateDiagnosticを変更しない。
+- device loss/reinitializeでworld/session identityを再発行しない。
+
 non-waivable release failureを定義済み。
 
 判定: PASS。
@@ -288,10 +308,15 @@ Core/Gateway: .NET 10 LTS / C# 14
 Gateway: ASP.NET Core 10
 General View: standalone Blazor WebAssembly net10.0
 Admin View: standalone Blazor WebAssembly net10.0
-General View 3D: Three.js WebGLRenderer / WebGL 2
+General View 3D renderer: Three.js THREE.WebGPURenderer
+Preferred rendering backend: WebGPU
+Compatibility backend: WebGL 2 through WebGPURenderer automatic fallback
+Custom material/shader profile: TSL / node-material first
 ```
 
-WebGPURendererはinitial standardではoptional experimental profile。
+`THREE.WebGLRenderer`をstandard General View rendererとして直接使用しない。
+
+WebGPUが利用できない環境でも`WebGPURenderer`がWebGL 2 backendへfallback可能なため、renderer implementationを二重化しない。
 
 Exact compatible servicing/package patchはbuild/package lockへpinし、world schemaへ埋め込まない。
 
@@ -309,7 +334,7 @@ Core/peer/View/Admin protocol、auth/session、cache/custody、Config/audit cont
 
 ### General View
 
-binary protocol/publication/prediction/participation/rendering boundaryが揃い、Gateway mockで独立実装可能。
+binary protocol/publication/prediction/participation、Blazor↔ECMAScript interop、WebGPURenderer rendering boundaryが揃い、Gateway mockで独立実装可能。
 
 ### Admin View
 
@@ -339,7 +364,7 @@ Integration 3
 - issue body template
 - Definition of Done
 
-を定義した。
+`VIEW-03 Three.js scene projection / renderer`のstandard implementationは`phase4-platform-runtime-profile.md`に従い`THREE.WebGPURenderer`を使用する。
 
 追加architecture判断なしでGitHub Issueへ起票可能。
 
@@ -373,11 +398,11 @@ Integration 3
 - container/orchestrator/CI product
 - host-specific deployment topology
 
-これらはworld/protocol/persistence/schema meaningを変更しない範囲のimplementation/release choiceとして扱う。
+General View renderer classを`WebGLRenderer`へ変更することはimplementation-local choiceではなくPhase 4 renderer contract変更として扱う。
 
 ## 20. Design change after Phase 4
 
-Implementation中にPhase4 contract変更が必要な場合:
+Implementation中にPhase 4 contract変更が必要な場合:
 
 1. implementation issue内でsilent変更しない。
 2. design amendment issueを作成する。
@@ -393,5 +418,7 @@ P4-01〜P4-09をすべて`Complete`と判定する。
 Unresolved detailed-design blocker: **0件**。
 
 Issue #16の詳細設計完了条件を満たした。
+
+General View rendererのstandardは`THREE.WebGPURenderer` / WebGPU-firstに更新済みであり、この変更はpresentation layer内に閉じるためauthoritative world/protocol/persistence contractの再設計を要求しない。
 
 次工程は、本ブランチをreview/PRで`documentation`へ統合した後、`phase4-implementation-work-breakdown.md`のdependency DAGに従って38 standard implementation work packageをGitHub Issueへ起票し、各component branch上でimplementationを開始する。
