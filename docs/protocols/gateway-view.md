@@ -8,6 +8,8 @@ ProtocolIdは `mv.gateway-view` とする。
 
 共通 envelope / version / Capability / result / error / correlation contractは `docs/design/phase1-protocol-envelope.md` を正本とする。
 
+State continuity / recovery basisは `docs/design/phase1-persistence-replay-recovery.md` を正本とする。
+
 ## 2. 目的
 
 General Viewが利用者roleに応じてworldを参照・参加・操作し、Gatewayのconfirmed publication state、同期状態、Operation resultを安全に扱うための契約です。
@@ -98,14 +100,24 @@ State publicationは少なくとも次を判別可能にする。
 - WorldId
 - display basisとなるSimulation Step
 - confirmed stateであること
-- continuity / freshness判断に必要な情報
+- Core-derived `StateContinuityToken`
+- deltaの場合のbase continuity token
 - resync state
 
 WorldContextV1の `basis_step` をconfirmed state basisとして使用する。
 
-互換性のない異なるWorld Time/Stepのstateを1つのauthoritative-looking displayとして混在させない。
+### 8.1 StateContinuityToken
 
-State continuity sequence/tokenの具体契約はP1-05で決定する。
+P1-05の `StateContinuityToken` をconfirmed publication chainのcontinuity識別に使用できる。
+
+- GatewayはCoreから確認したtokenをViewへ伝播する。
+- Gatewayが独自にauthoritative-looking continuity tokenを生成しない。
+- process restart / Gateway changeを理由に同一committed stateのtokenを再採番しない。
+- deltaのbase tokenとViewが保持するconfirmed tokenが一致しない場合、そのdeltaをblind applyしない。
+- mismatch時はGatewayへresync / full state取得を要求できる。
+- tokenはstate equality proofではなくcausal continuity識別子である。
+
+互換性のない異なるWorld Time/Step/tokenのstateを1つのauthoritative-looking displayとして混在させない。
 
 ## 9. Interpolation / prediction
 
@@ -116,6 +128,7 @@ Smooth displayのため、Viewはpresentation layerでinterpolationやshort pred
 - predictionがworld outcomeへ影響してはならない。
 - confirmed stateと異なる場合はreconcile/correctする。
 - predicted presentation stateのStepをWorldContext `basis_step`としてauthoritativeに見せない。
+- predicted stateにconfirmed `StateContinuityToken`を付与してauthoritativeに見せない。
 
 Exact prediction model、correction UI、animationはView詳細設計で決定する。
 
@@ -176,10 +189,12 @@ Reconnect時は可能な限りsame session / same Diver identityを復元し、G
 
 - reconnectでversion / Capability negotiationを再実行する。
 - Viewはsyncing/resyncing状態を明示表示できる。
-- Gatewayがresync中の場合、それをconnected userへ通知する。
+- GatewayがCore recovery / resync中の場合、それをconnected userへ通知する。
 - inconsistent state sequenceをnormal confirmed stateとして表示しない。
 - old cached View stateをcurrent authoritative-looking stateとしてblind reuseしない。
 - new connectionのNegotiationGenerationは1から開始する。
+- old confirmed `StateContinuityToken` とGateway current tokenが一致すればprotocol固有ruleに従いcontinuation可能。
+- token不一致、basis gap、unknown baseの場合はfull resync / confirmed rebuildを行う。
 
 ## 14. Operation request
 
@@ -245,6 +260,8 @@ Machine behaviorはdiagnostic textではなくstable codeで分岐する。
 
 ACK / acceptedをCore authoritative terminal mutation successと同一視しない。
 
+Core由来terminal successが返ってきた場合、P1-05のdurable transition/result boundaryを通過したauthoritative resultとして扱える。
+
 ## 17. Protocol version / Capability
 
 Common handshakeはP1-04正本に従う。
@@ -265,7 +282,7 @@ Common handshakeはP1-04正本に従う。
 - Diver join時の専用new resident自動生成
 - disconnect時のautomatic Diver swap
 - View predictionのauthoritative化
-- prediction stateをconfirmed basis_stepとして表現すること
+- prediction stateをconfirmed basis_step / continuity tokenとして表現すること
 - resync中のinconsistent stateをnormal confirmed stateとして表示すること
 - shared DTO library dependency
 - incompatible negotiated versionでnormal connection
@@ -277,7 +294,7 @@ Common handshakeはP1-04正本に従う。
 
 ## 19. 詳細設計へ残す事項
 
-P1-04で共通化済み:
+P1-04 / P1-05で共通化済み:
 
 - common envelope / tracing identity
 - version / Capability handshake
@@ -285,6 +302,8 @@ P1-04で共通化済み:
 - common result/error/retry
 - WorldContext / OperationContext
 - immutable Operation digest boundary
+- StateContinuityToken semantics
+- recovery後のconfirmed publication continuity rule
 
 残る個別事項:
 
@@ -297,8 +316,7 @@ P1-04で共通化済み:
 - resident binding identifier/schema
 - absence behavior policy schema
 - interpolation/prediction/correction messages
-- state publication full/delta strategy
-- continuity sequence/token
+- state publication full/delta payload strategy
 - Operation payload schema
 - resync notification/status representation
 - pagination/range request
