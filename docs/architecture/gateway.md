@@ -1,309 +1,311 @@
-# ゲートウェイ設計
+# Gateway設計
 
 ## 1. 目的
 
-本書は、MachiVerse におけるゲートウェイの責務、シミュレーションコアとの関係、マスターゲートウェイ、参照キャッシュ、操作集約、および利用者接続に関する現時点の標準設計を定義します。
+GatewayはSimulation CoreとGeneral View / Admin Viewの間に位置する、接続、認証・認可、緩衝、Operation集約・調停、cache、再同期の境界である。
 
-ゲートウェイは、シミュレーションコアと一般ビュー・管理ビューの間に位置する接続・認可・緩衝・調停境界です。一般ビューおよび管理ビューはシミュレーションコアへ直接接続しません。
+Gatewayは世界状態の正本ではない。標準構成では単一Simulation Coreが正本を保持し、Gatewayは外部接続を水平scaleさせる。
 
-ゲートウェイはシミュレーション状態の正本ではありません。標準構成では1つのシミュレーションコアが世界状態の正本を保持し、ゲートウェイは外部参照用のキャッシュと遅延バッファを持つことで、コアをシミュレーション計算へ専念させます。
+本書は `gateway-operation-delivery.md`、`gateway-master-failover.md`、`gateway-cache-resynchronization.md`、`authentication-authorization-session.md`、`protocol-compatibility-capability.md` の確定要件を上位説明へ反映する。
 
-## 2. 基本原則
+## 2. 基本構成
 
-1. 標準構成ではシミュレーションコアは1つとする。
-2. シミュレーションコアとゲートウェイは1対多とし、複数ゲートウェイによる水平スケールを可能にする。
-3. 複数ゲートウェイが存在する場合、コアがその中からマスターゲートウェイをランダムに選出する。
-4. 一般ビュー由来のコアへの干渉要求は、各ゲートウェイで認証・認可・ローカル集約・ローカル競合調停を行った後、マスターゲートウェイへ集約する。
-5. マスターゲートウェイは各ゲートウェイから集めた要求をさらに集約・競合調停し、コアへ最終操作バッチとして一括要求する。
-6. 外部参照要求は可能な限りゲートウェイのキャッシュから処理し、コアへの参照負荷を抑える。
-7. ゲートウェイはシミュレーションルールを複製せず、世界状態・ルールに基づく最終妥当性判断はコアに委ねる。
-8. 標準ゲートウェイには複数シミュレーションコア間のProxy参照、コア境界に伴うGatewayハンドオーバー、複数コア間の利用者ルーティングを実装しない。
+- Simulation Core : Gateway = 1:N。
+- General View / Admin ViewはCoreへ直接接続しない。
+- 複数Gateway構成では、Coreが安全にMaster役割を担えるGatewayから1台をMaster Gatewayとして選出する。
+- Masterは固定nodeではなく役割である。
+- General View由来のCore干渉Operationは各Gatewayで処理した後、Masterへ集約する。
+- 外部参照要求は可能な限り各Gatewayのcacheから処理し、すべてのreadをMasterへ集中させない。
 
-## 3. コンポーネント境界
+```text
+General View ──> Gateway A ─┐
+                            │ local batch
+General View ──> Gateway B ─┼──> Master Gateway ── final batch ──> Simulation Core
+                            │
+General View ──> Gateway C ─┘
+```
 
-ゲートウェイは他コンポーネントとコード、DLL、内部型、共有DTOライブラリを通信契約として共有しません。コンポーネント間通信はプロトコルだけを介して行います。
+Admin ViewもGatewayを経由する。login要求は接続先GatewayからMasterへproxyするが、login以外のAdmin Core OperationをすべてMaster経由へ統一するかは未確定である。
 
-| 境界 | プロトコル所有者 | 設計書 |
+## 3. Component境界
+
+Gatewayは他componentとcode、DLL、内部型、shared DTO libraryを通信契約として共有しない。
+
+| 境界 | protocol owner | 正本 |
 |---|---|---|
-| シミュレーションコア ↔ ゲートウェイ | シミュレーションコア | `docs/protocols/core-gateway.md` |
-| ゲートウェイ ↔ ゲートウェイ | ゲートウェイ | `docs/protocols/gateway-gateway.md` |
-| ゲートウェイ ↔ 一般ビュー | ゲートウェイ | `docs/protocols/gateway-view.md` |
-| ゲートウェイ ↔ 管理ビュー | ゲートウェイ | `docs/protocols/gateway-admin-view.md` |
+| Simulation Core ↔ Gateway | Simulation Core | `docs/protocols/core-gateway.md` |
+| Gateway ↔ Gateway | Gateway | `docs/protocols/gateway-gateway.md` |
+| Gateway ↔ General View | Gateway | `docs/protocols/gateway-view.md` |
+| Gateway ↔ Admin View | Gateway | `docs/protocols/gateway-admin-view.md` |
 
 ## 4. 主な責務
 
-ゲートウェイは以下を担当します。
+Gatewayは少なくとも次を担当する。
 
-- 一般ビュー・管理ビューからの要求受付
-- 一般ビュー利用者の認証・ロール認可
-- ロールに応じた参照情報の制御
-- 外部クライアント接続管理
-- シミュレーション状態の参照用キャッシュ
-- 約1秒分を基準とする遅延バッファ管理
-- 一般ビュー由来操作のローカル集約
-- 同一ゲートウェイ内の外部要求レベル競合調停
-- ローカル操作バッチ形成
-- 非マスター時のマスターゲートウェイへの操作バッチ転送
-- マスター時の全ゲートウェイの操作バッチ集約
-- マスター時のゲートウェイ間外部要求レベル競合調停
-- マスター時のコア向け最終操作バッチ形成・一括送信
-- コアから返された操作結果の元ゲートウェイへの振り分け
-- コアによるマスター選出・変更通知の受理
-- 負荷分散・水平スケール
-- 通信エラー処理・流量制御
-- 管理ビューからの運用・設定・コマンド要求の仲介
+- General View / Admin Viewからの接続受付
+- authn / authzとsession制御
+- General View roleに応じたOperation認可
+- Admin Operation固有の妥当性確認
+- 外部参照用cache
+- 約1秒を標準とするlogical publication buffer
+- General View Operationのlocal aggregate / local conflict mediation
+- local batch形成
+- 非Master時のMasterへのbatch転送
+- Master時の全Gateway batchのdeterministic merge
+- Master時のcross-Gateway external-request conflict mediation
+- Core向けfinal batch形成
+- Operation ID / Batch IDによるretry・dedup・idempotency
+- Master generation / epochへの追従
+- Core結果の適切な返却・配信
+- reconnect時のcache再同期
+- resync状態のconnected userへの通知
+- protocol / Capability negotiation
+- flow control、timeout、retry等の外部接続運用
 
 ## 5. 責務外
 
-ゲートウェイは以下を正本責務として持ちません。
+Gatewayは次を正本責務として持たない。
 
-- シミュレーションルールそのものの決定
-- エージェント内部状態遷移ロジック
-- シミュレーション時間の進行
-- シミュレーション状態の正本管理
-- 世界状態・シミュレーションルール上の最終操作妥当性判断
-- マスターゲートウェイの選出決定
-- シミュレーションコア・ゲートウェイ間プロトコルの所有
-- 複数シミュレーションコア間の状態同期、所有権管理、因果同期
-- 複数コアを跨ぐProxy参照およびGatewayハンドオーバー
+- Simulation World Stateの正本
+- World Time / Simulation Stepの進行
+- residentやworld subsystemの内部simulation rule
+- UI roleと無関係な一般的world-state invariantの定義
+- Master選出そのものの最終決定
+- 複数Core間のstate sync、ownership transfer、region split
 
-## 6. ゲートウェイ構成
+Gatewayはsimulation ruleを複製してGeneral View Operationの世界上の最終可否を決めない。
 
-標準構成では1つのシミュレーションコアに複数のゲートウェイを接続できます。
+一方、Admin OperationについてはQ235/Q275に従い、Admin認証・権限・操作形式・対象・Admin操作としての許可条件等の妥当性確認をGatewayが担当する。Coreはその後も全Operation共通のworld-state invariantを維持する。
 
-```text
-一般ビュー群 ──> Gateway A ─┐
-                             │ local batch
-一般ビュー群 ──> Gateway B ─┼──> Master Gateway ── final batch ──> Simulation Core
-                             │
-一般ビュー群 ──> Gateway C ─┘
-```
-
-各ゲートウェイは通常の利用者接続、参照配信、ローカル操作集約を担当できます。マスターゲートウェイも通常のゲートウェイとして利用者を受け持てます。
-
-マスター役割は、コアへ向かう一般ビュー由来の書き込み経路を集約するための役割であり、通常の参照要求をすべてマスターへ集中させるものではありません。
-
-## 7. マスターゲートウェイ
-
-### 7.1 選出
-
-マスターゲートウェイの選出責任はシミュレーションコアが持ちます。
-
-- 選出対象は、その時点でコアが有効な接続先として認識しているゲートウェイとする。
-- 選出方式はランダムとする。
-- 選出結果を対象ゲートウェイ群へ通知する。
-- マスターが停止・切断・利用不能になった場合、コアが新しいマスターを再選出する。
-- マスターは恒久的な固定ノードではなく役割として扱う。
-
-ランダム選出に使用する具体的な乱数方式、重み付け、直前マスターの再選出可否は未確定です。
-
-### 7.2 書き込み集約
-
-一般ビュー由来操作は以下の経路で処理します。
+## 6. General View Operationの経路
 
 ```text
-一般ビュー
-   ↓
-接続先Gateway
-   ↓ 認証・認可
-ローカル操作集約
-   ↓
-ローカル競合調停
-   ↓ local batch
+General View
+  ↓
+connected Gateway
+  ↓ authn / authz
+local aggregation
+  ↓
+local external-request conflict mediation
+  ↓ local batch
 Master Gateway
-   ↓ 全Gateway分を集約
-Gateway間競合調停
-   ↓ final batch
+  ↓ deterministic merge
+cross-Gateway external-request conflict mediation
+  ↓ final batch
 Simulation Core
-   ↓
-世界状態・ルール上の最終妥当性判定
-   ↓
-正本状態へ反映
+  ↓ common world-state / simulation-rule validity
+authoritative state
 ```
 
-非マスターゲートウェイは、一般ビュー由来のローカル操作バッチをコアへ直接送信しません。
+### 6.1 Gateway内の責務
 
-### 7.3 競合調停の責務階層
+- unauthorized requestをCoreへ送らない。
+- 同一Gateway内の外部要求レベル競合を決定論的に整理する。
+- local batch内順序をnetwork arrival raceやthread completion orderだけで決めない。
+- Operationのstable IDを保持する。
 
-競合調停は3段階に分けます。
+### 6.2 Masterの責務
 
-1. **ローカル競合調停**: 各ゲートウェイが、自身へ到達した外部要求同士を整理する。
-2. **ゲートウェイ間競合調停**: マスターゲートウェイが、各ゲートウェイから集めた操作バッチ間の外部要求レベル競合を整理する。
-3. **シミュレーション妥当性判定**: コアが、正本世界状態とシミュレーションルールに基づいて最終実行可否を判断する。
+- 自身と他Gatewayのlocal batchを受け取る。
+- 同じ有効Operation集合からdeterministicなmerge結果を形成する。
+- cross-Gateway external-request conflictを整理する。
+- final Core-facing batchを形成しCoreへ送る。
+- resultを元Gatewayへ返却可能にする。
 
-ゲートウェイの競合調停にシミュレーションルールを複製しません。
+Masterはsimulation world ruleの正本ではない。
 
-### 7.4 マスター障害・切替
+## 7. Operation ID・Batch ID・retry・dedup
 
-マスター切替時には、少なくとも以下の重複・欠落を防止する必要があります。
+- 各外部Operationはhop、retry、Master failover、Gateway reconnectを跨いで不変のstable Operation IDを持つ。
+- 同一Operation IDは世界へ一度だけ影響する。
+- retry時は同じOperation IDを使用する。
+- batchにも識別子を持たせ、ACK lossやMaster切替時に同一処理を追跡可能にする。
+- retry回数、network delay、ACK loss、thread順序だけでworld outcomeを変えない。
+- exact ID format、retention window、dedup data structure等は詳細設計で決定する。
 
-- 旧マスターへ送信済みだがコアへ未送信のバッチ
-- 旧マスターがコアへ送信済みだが結果未確定のバッチ
-- 新マスターへの再送による二重転送
-- 同一操作の二重適用
-- 古いマスター世代の遅延メッセージ
+## 8. Operation順序と適用候補Step
 
-そのため、マスター選出世代またはepoch、バッチ識別子、操作識別子、再送・冪等性の契約が必要です。具体的な形式はプロトコル設計で定義します。
+- Gateway内順序とMaster merge順序を決定論化する。
+- 同じ有効Operation集合なら、Gateway数、Master個体、network timing、thread orderに依存せず同じCore-facing orderを得る。
+- Gateway / Masterはprotocol規則に従いOperationの候補適用時刻/Stepに必要な情報を形成する。
+- Coreが現在Simulation Step、deadline、Master generation、ordering rules等から最終有効Stepを確定する。
+- physical arrival timeをそのままauthoritative application orderにしない。
 
-## 8. キャッシュ
+具体的なordering key、candidate Step field、same-step tie-breakerは詳細設計で決定する。
 
-### 8.1 目的
+## 9. Master Gateway選出
 
-ゲートウェイキャッシュは、一般ビュー等からの参照要求をコアから切り離し、コアへの高頻度な読み取り負荷を抑えるための参照用複製です。
+Master選出責任はSimulation Coreが持つ。
 
-キャッシュはシミュレーション状態の正本ではありません。正本は常にシミュレーションコアにあります。
+### 9.1 eligibility
 
-### 8.2 キャッシュ更新
+単にTCP等で接続中であるだけでは候補としない。少なくとも、接続・応答、protocol互換、required Capability、必要なsync state等、安全にMasterとして動作できる条件を満たす必要がある。
 
-コアからゲートウェイへの具体的な状態配信方式は未確定です。Push/Pull、全量・差分・スナップショット、更新頻度、無効化方式、複数ゲートウェイ間の整合性方式は別途定義します。
+具体的なhealth check方式・数値thresholdは外部Configと詳細protocolで決定する。
 
-## 9. 遅延バッファ
+### 9.2 random selection
 
-ゲートウェイは、コアの計算頻度・状態到着間隔の一時的な揺らぎを外部へ直接露出させないため、基準値として約1秒分の遅延を設けます。
+- 選出方式はrandomとする。
+- Master選択結果そのものをWorld Seedから決定論的に再現する標準要件はない。
+- 選択結果、generation、切替理由等をdiagnostic可能にする。
+- どのGatewayがMasterでも、同じ有効Operation集合ならworld outcomeを変えない。
 
-コアの計算頻度の基準値は30Hzであるため、1秒は概念上約30ステップに相当しますが、実装を30件固定のキューに限定するものではありません。
+### 9.3 generation / epoch
 
-キャッシュと遅延バッファは別の責務です。
+- Master generation / epochを持つ。
+- Coreが現在有効なgenerationを決定する。
+- old Master generationから遅れて到着したfinal outputを通常のcurrent outputとして受理しない。
 
-- キャッシュ: コアへの参照負荷を分離する。
-- 遅延バッファ: 外部へ公開する時間系列の揺らぎを吸収する。
+## 10. Master障害・failover・live migration
 
-約1秒という値は外部Configから変更可能です。一般ビュー由来操作や管理操作そのものを一律1秒遅延させる要件ではありません。
+- heartbeat、response delay等からMaster利用不能を判断できる。
+- transient delayとfailureを区別する。
+- monitor interval、failure threshold、reselection条件等の調整数値は外部Config化する。
+- unfinished batch、ACK待ち、retry中Operationを新generationへ引き継ぎ、loss・duplicate applyを防ぐ。
+- live migrationに耐える設計とする。
+- split-brainを防止する。
 
-## 10. 一般ビュー利用者ロールと認可
+OperationにはWorld Time / application Step上の受付deadlineを設けられる。late Operationは過去の確定状態をretroactiveに書き換えず、protocol規則に従って後続有効Stepへdeferするかrejectする。
 
-一般ビューには以下の利用者ロールがあります。
+## 11. Authn / Authz / session
 
-| ロール | シミュレーションへの干渉 | 参照範囲 |
-|---|---|---|
-| ダイバー | シミュレーション住民と同程度 | 参加者として許可された情報 |
-| スペクテイター | 不可 | システムのバイタルに関係しない程度のステータス |
-| モデレーター | シミュレーションおよび下位利用者へ限定的に可能。クリティカル操作は禁止 | スペクテイターと同等 |
-| アドミニストレーター | シミュレーションへ完全に干渉可能 | 一般ビュー向け全ステータス |
+General ViewとAdmin Viewはauth/authz domainを分離する。
 
-GatewayはUI上の表示・非表示だけに認可を依存せず、各要求をGateway側で検証します。
+### 11.1 General View
 
-- スペクテイターの状態変更要求はコアへ到達させない。
-- モデレーターのクリティカルな要求はコアへ到達させない。
-- 下位利用者への操作ではロール階層を検証する。
-- Gatewayで認可された操作であっても、世界状態・ルール上の理由によりコアが拒否できる。
+Gatewayはrole、session、Operation type、target等に応じて認可する。
 
-一般ビューのアドミニストレーターと管理ビューの運用権限は別概念です。
+- Spectatorのsimulation mutation requestをCoreへ送らない。
+- Moderatorに許可されないcritical requestをCoreへ送らない。
+- General View Administratorの権限をAdmin Viewへ自動流用しない。
 
-## 11. 管理ビュー要求
+### 11.2 login
 
-管理ビューは一般ビューの最上位ロールではなく、コンポーネント運用のための別境界です。
+- Userは接続先Gatewayへlogin requestを送る。
+- connected Gatewayはlogin requestをMaster Gatewayへproxyする。
+- login処理の確定はMasterで行う。
+- 非Master Gatewayが独立に同じ認証を最終確定しない。
+- Master切替/live migrationでもsession整合性を壊さない設計にする。
 
-管理ビューでは各コンポーネントのログ、稼働・診断状態、外部Config、運用コマンド、シミュレーションへの運用上の干渉を扱います。
+具体的なcredential、token、IdP、session storage方式は未確定。
 
-管理ビュー由来のコア干渉要求をマスターゲートウェイ経由へ統一するか、別の管理経路を持つかは未確定です。
+### 11.3 role change / revoke
 
-## 12. スケールアウト
+- connection中のrole変更には明示的なeffective pointを持たせる。
+- privilege revoke後の新規Operationへ古い権限を適用しない。
+- severe revokeではexisting session/credentialをinvalidate可能にする。
+- auth outage時もauthorizationをbypassしない。
 
-Gatewayは水平スケール可能とします。標準構成の1つのシミュレーションコアに複数Gatewayを配置することで、利用者接続・参照配信等の外部負荷を分散できます。
+## 12. Admin Operation
 
-マスターゲートウェイ1台が一般ビュー由来の書き込み集約点になるため、Gateway数・操作量が増大した場合はボトルネックになり得ます。現時点ではマスター1台方式とし、将来の分割方式は実測上必要になった場合に別途設計します。
+- Admin View→Gateway→Coreを基本経路とする。
+- Admin Operationをstable Operationとして識別・audit可能にする。
+- Admin固有のauthn/authz、形式、target、allowed-condition validationはGatewayが担当する。
+- CoreはUI role名を解釈せず、全Operation共通のworld-state invariantを維持する。
+- simulation-affecting Admin Operationを単にAdmin由来だからという理由で無条件最優先にしない。
+- simulation-non-affecting Admin Operationに限り最優先としてよい。
 
-シミュレーション計算能力の標準的な拡張は、シミュレーションコア自身のマルチスレッド化・計算効率向上によって行います。複数シミュレーションコアによる領域分割は標準実装に含めません。
+Login以外のAdmin Core OperationをMaster pathへ統一するかは未確定である。
 
-## 13. 決定性との関係
+## 13. Cache
 
-Gatewayの存在数、どのGatewayがマスターになったか、処理速度、通信到着競争等の運用上の差異によって、同一Seed・同一シミュレーション設定・同一操作から得られるシミュレーション結果を変えてはなりません。
+Gateway cacheは外部read負荷をCoreから分離するための非権威な派生状態である。
 
-そのため、操作集約・競合調停・再送・重複排除等を設計する際は、到着タイミングやスレッド実行順だけで結果が変化する方式を避け、シミュレーションへ渡される有効操作を決定的に扱える必要があります。
+- cacheをauthoritative World Stateとして扱わない。
+- cache lossをworld lossとして扱わない。
+- cacheのbasisとなるSimulation Step / generation等を識別可能にする。
+- stale / inconsistent cacheを検出した場合は破棄・再構築できる。
 
-具体的な決定順序規則は未確定です。
+Core→Gateway state deliveryの具体方式は未確定であり、Push/Pull、full/delta、snapshot等を現段階で固定しない。
 
-## 14. 外部Config
+## 14. Logical publication buffer
 
-Gatewayの運用・性能・挙動を調整する数値は、原則としてGatewayが所有する外部Configから変更可能にします。
+Gatewayは標準約1秒のpublication delay bufferを持つ。
 
-対象例には以下を含みます。
+- 単純なsleepではなく、World Time / Simulation Stepの範囲を保持するlogical bufferとして扱う。
+- arrival jitter、temporary reorder、publish timingの揺らぎを外部へ直接露出させないために使う。
+- cacheとは別責務。
+- 30Hz Core updateと30Hz external publishを同一要件にしない。
+- buffer durationはGateway Config。
+- General View Operation / Admin Operationそのものを一律1秒遅らせる要件ではない。
 
-- 遅延バッファ時間
-- キャッシュ関連の時間・件数・サイズ上限
-- タイムアウト
-- 再試行回数・間隔
-- 接続数上限
-- 流量制御値
-- 操作集約に関する時間・件数・サイズ
-- マスター生存判定・切替に関する調整値
+## 15. Reconnect・resync
 
-具体的なConfigキー、既定値、動的再読込可否は未確定です。
+Gateway reconnect時はold cacheをblind trustしない。
 
-## 15. プロトコルバージョニング
+- Coreまたはprotocol-authoritativeなsync sourceからbasis Simulation Step、generation等を確認する。
+- 正常publicationへ戻す前に必要なresyncを完了する。
+- missing、reorder、sync mismatchを検出したらrefetch/rebuildする。
+- inconsistent state sequenceを通常状態としてpublishしない。
+- resync中であることをconnected userへ通知し、General Viewではvisibleなsync stateとして扱えるようにする。
 
-Gatewayが所有または利用する各コンポーネント間プロトコルは、既存の共通方針に従い `Major.Minor` の概念を持ちます。
+## 16. Gatewayが0台の場合
 
-- Majorが一致する場合のみ接続を許可する。
-- Majorが異なる場合は接続を拒否する。
-- 同一Major内では異なるMinor間の接続を許可する。
-- 新しいMinorは同一Majorの古いMinorとの後方互換性を維持する。
-- 後方互換性を維持できない変更はMajor更新とする。
+Gatewayが0台になったこと自体を理由にCoreのSimulation Stepを停止させない。
 
-## 16. 複数コア拡張の扱い
+- Coreのinternal eventは継続する。
+- Coreが既に受理済みのOperationは決定済みの規則に従って処理する。
+- 新規external Operationだけが入らない。
+- Gateway復旧後に不在期間へworldを巻き戻さない。
 
-複数シミュレーションコアによる世界領域分割は、標準実装としては中止します。
+## 17. Protocol compatibility / Addon metadata
 
-将来、標準実装とは分離されたアドオンとして複数コア化を提供する可能性は残します。その場合、標準実装が要求する完全再現性を維持しない構成を許容する可能性があります。
+- Major mismatchはconnection reject。
+- same MajorではMinor backward compatibilityを維持する。
+- connect時にrequired/optional Capabilityをnegotiationする。
+- addonについて標準protocolで交換するのはinstall状況、identity、version、required/provided Capability等のcompatibility/safety meta informationに限定する。
+- addon固有function payloadやcommandを標準protocolへ載せない。
+- addon固有cross-component communicationは別addon/frameworkとadditional protocolの責務とする。
 
-ただし、現時点では以下を標準仕様として定義しません。
+## 18. Config
 
-- Core間通信
-- Core間の領域分割
-- Core間の世界状態同期
-- Core間の正本所有権・担当移譲
-- 別Core側GatewayへのProxy参照
-- Core境界に伴うGatewayハンドオーバー
-- 複数Core間の利用者ルーティング
+Gatewayが所有する調整可能値はGateway外部Configから供給する。
 
-将来アドオンを設計する場合は、標準Core・Gatewayの契約へ暗黙に組み込まず、独立した拡張仕様として設計します。
+例:
 
-## 17. 禁止事項
+- publication buffer duration
+- cache retention / size
+- timeout
+- retry interval / limit
+- connection limit
+- flow control
+- aggregation window / count / size
+- Master health threshold
+- deadline / grace
+- resync threshold
 
-- 一般ビュー・管理ビューからコアへ直接接続すること
-- 非マスターGatewayが一般ビュー由来のローカル操作バッチをコアへ直接送信すること
-- 複数Gatewayが同時に同一コアのマスターとして通常の最終操作バッチを書き込むこと
-- Gateway側でシミュレーションルールを複製すること
-- Gatewayキャッシュをシミュレーション状態の正本として扱うこと
-- マスター選出をGateway同士の暗黙合意だけで決定すること
-- マスター切替時に識別情報なしで操作を再送すること
-- 一般ビューのアドミニストレーターへ管理ビュー専用権限を自動付与すること
-- GatewayやMasterの処理タイミング差をシミュレーション結果を変える暗黙入力として扱うこと
-- 標準Gatewayへ複数Core対応を暗黙に実装すること
+GatewayはCoreやViewのConfig fileを直接読まない。
 
-## 18. 現時点で確定している事項
+## 19. 複数Core拡張
 
-- 標準構成ではSimulation Coreは1つ。
-- Core : Gateway は1対多。
-- Gatewayは水平スケール可能。
-- 複数Gateway時はCoreがMaster Gatewayをランダムに選出する。
-- 一般ビュー由来操作は各Gatewayでローカル集約・競合調停する。
-- 非Master Gatewayはローカル操作バッチをMaster Gatewayへ送る。
-- Master Gatewayは全Gatewayのバッチを集約・競合調停し、Coreへ一括要求する。
-- Coreが正本世界状態とシミュレーションルール上の最終妥当性を判断する。
-- Gatewayは参照用キャッシュを持つ。
-- Gatewayは約1秒を基準とする遅延バッファを持つ。
-- 標準Gatewayは複数Core向けProxy・ハンドオーバーを持たない。
-- 標準実装の計算能力拡張はCore内マルチスレッド化を優先する。
-- 複数Core化は標準実装から除外し、将来の独立アドオン候補としてのみ残す。
-- 調整可能な数値は外部Config化する。
+標準Gatewayは複数Coreのregion routing、Core-to-Core state ownership、cross-Core proxy、Core boundary handoverを持たない。
 
-## 19. 今後決定が必要な事項
+将来のmulti-Core addonは標準契約へ暗黙に混在させず、独立拡張として扱う。
 
-- Master選出通知メッセージ
-- Master世代・epochの具体表現
-- Masterランダム選出アルゴリズム
-- Master生存判定方式・再選出条件
-- Master切替中の操作受付方針
-- 操作集約単位
-- ローカル競合調停規則
-- Gateway間競合調停規則
-- バッチ最大件数・最大サイズ
-- 決定的な操作順序規則
-- 冪等性・再送・重複排除方式
-- 操作結果返却経路
-- CoreからGatewayへの状態配信方式
-- 複数Gateway間のキャッシュ整合性
-- 管理ビュー由来操作のMaster経由可否
-- 実際の通信技術・シリアライズ形式
+## 20. 禁止事項
+
+- ViewからCoreへのdirect connection
+- 非Master GatewayによるGeneral View local batchのCore direct submission
+- two active Mastersによる同一generationの通常final batch書き込み
+- Gateway cacheのauthoritative化
+- Gatewayへのsimulation rule複製
+- Master generationなしのfailover
+- stable Operation IDなしのretry
+- network arrival raceをworld orderingとして利用すること
+- unauthorized requestをCoreへ送ること
+- standard protocolへaddon functional payloadを埋め込むこと
+
+## 21. 詳細設計へ残す事項
+
+- Master election messageとrandom algorithm
+- Master healthの具体protocol/threshold
+- Operation ordering key
+- candidate application Stepのwire表現
+- Batch transaction / partial-success semantics
+- Core→Gateway state delivery方式
+- cache consistencyの具体algorithm
+- result return messageの具体format
+- auth/token/session技術
+- login以外のAdmin Core OperationのMaster path
+- network transport / serialization
+- Capability / addon metadataの具体identifier・schema

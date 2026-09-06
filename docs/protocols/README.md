@@ -2,204 +2,249 @@
 
 ## 1. 目的
 
-本書は、MachiVerse のコンポーネント間通信における共通設計原則を定義します。
+本書はMachiVerseのcomponent間通信に共通する契約原則を定義する。
 
-MachiVerse では、シミュレーションコア、ゲートウェイ、一般ビュー、管理ビューを、コード・ビルド・配布・実行の単位まで独立したコンポーネントとして扱います。コンポーネント間でソースコードやライブラリを共有して契約を成立させるのではなく、プロトコル設計書を唯一の相互通信契約として扱います。
+Simulation Core、Gateway、General View、Admin Viewはcode/build/deploy/runtime単位まで独立し、component間通信はprotocolだけを通じて行う。shared DTO libraryや内部型共有をprotocolの代替にしない。
 
 ## 2. 基本原則
 
-### 2.1 コード依存を持たない
+### 2.1 Code dependencyを持たない
 
-コンポーネント間でコードレベルの依存を持ちません。
+禁止する例:
 
-禁止例は以下です。
+- 別componentのproject参照
+- 別component DLL参照
+- shared DTO libraryによるcontract共有
+- 別component内部class/interface参照
+- direct method call
+- same processであることを前提としたcommunication
+- protocol documentに存在しない暗黙仕様への依存
 
-- 別コンポーネントのプロジェクト参照
-- 別コンポーネントの DLL 参照
-- 共通 DTO ライブラリを介した型共有
-- 別コンポーネントの内部クラスやインターフェースの参照
-- 通信契約を共有コードだけで表現し、設計書を省略すること
+各componentは相手componentのimplementationなしでも独立build/test可能な境界を目指す。
 
-各コンポーネントは、他コンポーネントが存在しなくても単独でビルド可能であることを原則とします。
+### 2.2 Protocol documentを契約正本とする
 
-### 2.2 実行単位を分離する
+各protocol設計書では、必要に応じ少なくとも次を明示する。
 
-各コンポーネントは別実行ファイルまたは別実行単位として構成します。
+- communication purpose
+- sender / receiver
+- message / request / event type
+- field semantics
+- required / optional
+- data type / range / unit
+- success / error semantics
+- ordering
+- idempotency / dedup
+- retry
+- timeout / disconnect
+- synchronization basis
+- authentication / authorization handling
+- version / backward compatibility
+- Capability negotiation
+- World Time / Simulation Stepとの関係
+- Operation / Batch identityが関係する場合の意味
 
-シミュレーションコア、ゲートウェイ、一般ビュー、管理ビューを単一実行ファイルへ同梱して直接メソッド呼び出しで連携する構成は採用しません。
+transportやserializationの具体技術は個別protocol詳細設計で決定する。
 
-### 2.3 連携はプロトコルのみを通じて行う
+## 3. Protocol所有責任
 
-コンポーネント間の情報交換は、各境界に定義されたプロトコルを通じて行います。
+Protocol ownerは、接続する2componentのうちよりSimulation Coreに近いcomponentとする。
 
-プロトコル設計書には少なくとも以下を定義します。
-
-- 通信目的
-- 送信元・受信先
-- メッセージまたは要求の種類
-- 各フィールドの意味
-- 必須・任意
-- データ型と許容範囲
-- 成功応答
-- エラー応答
-- 順序性
-- 冪等性
-- 再送時の扱い
-- バージョニング
-- 後方互換性方針
-- タイムアウトや切断時の意味
-- 状態同期方式
-- 認証・認可上の扱い
-
-具体的な通信技術やシリアライズ方式は、各プロトコルの詳細設計で決定します。
-
-## 3. プロトコル所有責任
-
-プロトコルの責任は、接続する2コンポーネントのうち、よりシミュレーションコアに近いコンポーネントが持ちます。
-
-| 境界 | プロトコル所有者 | 利用者 |
+| 境界 | owner | 利用側 |
 |---|---|---|
-| シミュレーションコア ↔ ゲートウェイ | シミュレーションコア | ゲートウェイ |
-| ゲートウェイ ↔ ゲートウェイ | ゲートウェイ | ゲートウェイ |
-| ゲートウェイ ↔ 一般ビュー | ゲートウェイ | 一般ビュー |
-| ゲートウェイ ↔ 管理ビュー | ゲートウェイ | 管理ビュー |
+| Simulation Core ↔ Gateway | Simulation Core | Gateway |
+| Gateway ↔ Gateway | Gateway | Gateway |
+| Gateway ↔ General View | Gateway | General View |
+| Gateway ↔ Admin View | Gateway | Admin View |
 
-所有者は、その境界で提供可能な機能、メッセージ意味論、互換性、変更方針を定義する責任を持ちます。
+標準構成にCore↔Core protocolは存在しない。
 
-利用側コンポーネントは、所有者の内部コードへ依存せず、公開されたプロトコル設計書だけを基準に実装します。
+Ownerは公開機能、message semantics、compatibility、変更方針を定義する。利用側はownerのinternal implementationへ依存せずprotocol contractだけを基準に実装する。
 
-## 4. バージョニングと互換性
+## 4. Versioning
 
-### 4.1 バージョン構成
+### 4.1 Major.Minor
 
-各プロトコルは、少なくともメジャーバージョンとマイナーバージョンを識別できる形式でバージョンを持ちます。
+各protocolはMajor.Minorを識別可能にする。
 
-本書では概念的に `Major.Minor` と表記します。具体的なフィールド名、数値型、文字列表現等は各プロトコルの詳細設計で定義します。
+- Major mismatch: normal connectionを拒否する。
+- same Major / same Minor: compatibility成立を前提とする。
+- same Major / different Minor: backward-compatibleな範囲でconnectionを許可する。
+- newer Minorはsame Majorのolder Minorとのbackward compatibilityを維持する。
+- backward compatibilityを維持できないsemantic changeはMajorを更新する。
 
-### 4.2 メジャーバージョン
+具体的なfield name、numeric/string representationは個別protocolで定義する。
 
-メジャーバージョンは、後方互換性を維持できない契約変更を表します。
+### 4.2 Minor compatibility
 
-通信相手同士のメジャーバージョンが異なる場合は、通常のプロトコル通信を開始せず、接続を拒否します。
+Minor updateで既存必須fieldを削除したり、既存fieldの意味・型・unitを互換不能に変更したりしない。
 
-メジャーバージョンを上げる必要がある変更には、少なくとも以下を含みます。
+newer Minor側は、older peerが理解できない新機能・新内容を無条件送信しない。peer capabilityを確認し、safe-to-ignore unknown dataとsemantic incompatibilityを区別する。
 
-- 既存必須フィールドの削除
-- 既存フィールドの意味を互換性なく変更すること
-- 既存フィールドの型・単位・許容範囲を互換性なく変更すること
-- 既存メッセージの意味を互換性なく変更すること
-- 既存の正常な通信相手が正しく処理できなくなる変更
+## 5. Capability Negotiation
 
-### 4.3 マイナーバージョン
+Connection確立時に、protocol versionだけでなく対応Capabilityを交換可能にする。
 
-同一メジャーバージョン内では、マイナーバージョンに後方互換性を持たせます。
+- required Capabilityとoptional Capabilityを区別する。
+- required Capability不足はconnection全体または対象機能を明示的に拒否する。
+- capability mismatchをsilent degradationで隠さない。
+- live migration、Master Gateway切替、addon状態変更等でeffective Capabilityが変化し得る場合、安全なrenegotiationまたはreconnectを行う。
+- reconnectはCapability negotiationをやり直す基本境界とする。
 
-新しいマイナーバージョンの実装は、同一メジャーバージョンの古いマイナーバージョンとの通信を維持できなければなりません。
+具体的Capability identifier、negotiation message、error codeは個別protocol詳細設計で決定する。
 
-したがって、マイナーバージョン更新では既存契約を壊さず、追加機能・追加情報は古いマイナーバージョンでも通信継続可能な形で導入します。
+## 6. Addon関連情報の標準Protocol境界
 
-具体的には、以下を原則とします。
+Q246とQ255を次のように統一する。
 
-- 既存必須フィールドを削除しない。
-- 既存フィールドの意味を変更しない。
-- 既存フィールドを非互換な型へ変更しない。
-- 古いマイナーバージョンが理解できない追加情報があっても、既存機能の通信を継続できる契約にする。
-- 新機能を利用できない古いマイナーバージョンに対して、その新機能の利用を必須にしない。
+### 6.1 標準protocolで交換可能な情報
 
-### 4.4 接続時のバージョン確認
+標準protocolは、接続安全性・compatibility確認に必要なaddonの**meta information**を交換できる。
 
-通信相手は接続確立時に、少なくとも互いのメジャーバージョンを確認できる必要があります。
+例として意味上含み得るもの:
 
-- メジャーバージョン一致: 接続を許可する。
-- メジャーバージョン不一致: 接続を拒否する。
-- メジャーバージョン一致・マイナーバージョン不一致: 後方互換性の範囲で接続を許可する。
+- addon install / enable状況
+- addon identity
+- addon version
+- required / provided Capability
+- compatibility判断に必要なdependency information
 
-具体的なハンドシェイク方式、エラーコード、利用可能機能の判定方式は今後定義します。
+具体fieldは現時点では定義しない。
 
-## 5. 並行開発の原則
+### 6.2 標準protocolに載せないもの
 
-コンポーネントは独立して並行開発できなければなりません。
+標準protocolには次を設けない。
 
-特に、シミュレーションコアとゲートウェイを同時に実装しても、通常の機能開発において同一ソースファイルを編集する必要がなく、コード上のコンフリクトが発生しない構造を目標ではなく設計原則とします。
+- addon固有function payload
+- addon固有command
+- addonのworld-specific extra dataを運ぶgeneric extension payload
+- addon都合で標準message semanticsを書き換える仕組み
 
-そのため、以下を守ります。
+つまり、標準protocol上のaddon情報は「その接続・構成が安全かを判定するためのmeta情報」であり、「addon機能そのものを標準protocolで通信する仕組み」ではない。
 
-- コンポーネントごとに実装ディレクトリを分離する。
-- コンポーネントごとにプロジェクト・ビルド単位を分離する。
-- 共通実装コードをコンポーネント境界に置かない。
-- 通信モデルの変更は、まずプロトコル設計書の変更として扱う。
-- プロトコル変更後、各コンポーネントがそれぞれ独立して追従する。
-- 一方の実装変更を、他方のソースコード変更と同一作業として必須にしない。
+### 6.3 Addon固有の追加Protocol
 
-## 6. プロトコル変更の流れ
+Addonがcomponent境界を越えて固有情報を交換する必要がある場合は、標準protocolへ混在させず、protocol拡張の前提framework addon等と、そのaddon間で成立するadditional protocolを用意する方向とする。
 
-1. プロトコル所有者が変更要求を整理する。
-2. プロトコル設計書を更新する。
-3. 変更がマイナー互換変更か、メジャー変更を必要とする非互換変更かを判定する。
-4. マイナー変更の場合は同一メジャーの既存マイナー版との後方互換性を維持する。
-5. 非互換変更の場合はメジャーバージョンを更新する。
-6. 利用側コンポーネントは更新された設計書を基準に実装を追従する。
+このframework addon、additional protocol、transport、API、package形式等は未確定であり、本書では先取りしない。
 
-プロトコル変更と実装変更を同一コード共有で暗黙的に伝播させないことが重要です。
+## 7. Addon不整合と接続安全性
 
-## 7. 独立テスト
+- required addon / version / Capabilityが不足・非互換ならunsafe featureをenableしない。
+- Q257に従い、component startup時のaddon構成・dependency・Capability・Configに不整合がある場合は、重大度に関係なくstartupを拒否する。
+- Q267に従い、saved worldが依存するaddon条件に不整合があれば、明示migrationが完全成功しない限りworld startupを拒否する。
 
-各コンポーネントは、相手コンポーネントの実装そのものを必要とせずに通信境界をテストできることを目指します。
+Protocol negotiationはこの安全判定に必要な情報を伝えるが、addon runtime implementationそのものをstandard protocolへ取り込まない。
 
-プロトコル互換性テストでは、少なくとも以下を検証可能にします。
+## 8. Operationを扱うProtocolの共通要件
 
-- 同一メジャー・同一マイナー間の接続
-- 同一メジャー・異なるマイナー間の接続と既存機能の互換性
-- 異なるメジャーバージョン間の接続拒否
+World Stateへ影響するOperationを扱うprotocolは、必要な境界で次を契約化する。
 
-具体的なテスト技術や自動生成方式は現時点では未確定です。
+- stable Operation ID
+- Batch ID
+- Master generation / epoch
+- retry時のsame identity
+- dedup / idempotency
+- stale generation handling
+- deterministic orderingに必要なlogical information
+- candidate / final application Simulation Step semantics
+- deadline / late behavior
 
-## 8. 禁止事項
+Network arrival time、retry count、thread schedulingだけでworld outcomeを変えない。
 
-- コンポーネント間でソースコードを直接共有すること
-- コンポーネント間で内部型を共有すること
-- コンポーネント間の直接メソッド呼び出し
-- 同一プロセスであることを前提とした通信
-- プロトコル設計書に存在しない暗黙仕様への依存
-- プロトコル所有者以外が、利用側都合だけで契約を一方的に変更すること
-- 共有コード変更によって複数コンポーネントを同時修正しないとビルドできなくなる構造
-- マイナーバージョン更新で後方互換性を破壊すること
-- メジャーバージョンが異なる通信相手との通常接続を許可すること
+具体field schemaは各protocolで定義する。
 
-## 9. 現時点で確定している事項
+## 9. World Time
 
-- 4コンポーネント間にコード依存を持たせない。
-- 各コンポーネントは別の実行単位とする。
-- コンポーネント間通信はプロトコル経由に限定する。
-- プロトコル設計書をコンポーネント間契約の基準とする。
-- プロトコルの所有責任は、よりシミュレーションコアに近いコンポーネントが持つ。
-- コア・ゲートウェイ間プロトコルはシミュレーションコアが所有する。
-- ゲートウェイ間プロトコルはゲートウェイが所有する。
-- ゲートウェイ・一般ビュー間プロトコルはゲートウェイが所有する。
-- ゲートウェイ・管理ビュー間プロトコルはゲートウェイが所有する。
-- コンポーネントごとの並行実装でコード競合を発生させない構造とする。
-- 各プロトコルはメジャー・マイナーバージョンを識別可能にする。
-- 同一メジャー内のマイナーバージョンには後方互換性を持たせる。
-- メジャーバージョンが異なる場合は接続を拒否する。
+Protocol上でsimulation timeを扱う場合、authoritativeな時間基準はSimulation Coreの整数Simulation Stepと整合させる。
 
-## 10. 今後決定が必要な事項
+display time、wall clock、resident calendar等とauthoritative Simulation Stepを混同しない。
 
-- 実際に使用する通信プロトコル
-- シリアライズ形式
-- バージョンの具体的な表現形式
-- バージョン交換・ハンドシェイク方式
-- メジャー不一致時の具体的なエラー形式
-- マイナーバージョン差による利用可能機能の判定方式
-- 互換性保証期間
-- スキーマ管理方式
-- スキーマからのコード生成を許可するか
-- 通信相手の検出方式
-- 接続確立方式
-- タイムアウト
-- 再送方針
-- 冪等性規則
-- 順序保証
-- 圧縮
-- 暗号化
-- 認証・認可
-- 契約テスト方式
+Gateway/Masterがcandidate application timeを扱う場合も、Coreが最終有効Stepを確定する意味論を壊さない。
+
+## 10. Auth / Authorization
+
+- General View / Admin Viewのauth domainは分離する。
+- Gateway-owned protocolでは、unauthorized requestをCoreへ到達させない意味論を持つ。
+- Admin Operation固有のvalidity checkはGateway責務。
+- Core-facing protocolでは、CoreがUI roleを解釈せずcommon world-state invariantを維持する責務と両立させる。
+- loginはconnected GatewayからMaster Gatewayへproxyし、Masterで確定する要件をGateway関連protocolで表現可能にする。
+
+具体credential/token/IdPは未確定。
+
+## 11. Failure / reconnect / resynchronization
+
+Protocolは必要に応じ次を明示する。
+
+- disconnect時にconfirmed / unconfirmedとみなすもの
+- retry ownership
+- ACK loss
+- duplicate message
+- missing / reorder detection
+- reconnect時のsync basis
+- cacheがauthoritativeでないこと
+- resync中のpublication behavior
+- Master failover / generation handoff
+
+Failure handlingをimplementationの暗黙挙動に任せない。
+
+## 12. Error diagnostics
+
+Compatibility・safety上のrejectは、可能な範囲でoperator/userが原因を診断できるようにする。
+
+少なくともMajor mismatchでは、reject reason、双方version、必要なupdate directionを確認可能にする。
+
+Required Capability / addon compatibility mismatch等についても、原因をsilentに隠さない。
+
+## 13. Protocol変更の流れ
+
+1. protocol ownerが変更要求を整理する。
+2. protocol設計書を先に更新する。
+3. same Majorのcompatible Minor changeか、Major changeが必要なsemantic breakかを判定する。
+4. Capability impactを確認する。
+5. addon meta informationに影響する場合もstandard/additional protocol境界を確認する。
+6. 各component implementationが独立してcontractへ追従する。
+
+Shared code変更によって暗黙に複数componentを同時変更させない。
+
+## 14. Independent testing
+
+各componentは相手implementation自体を必要とせずprotocol boundaryをtest可能にする方向とする。
+
+少なくとも次を検証可能にする。
+
+- same Major / same Minor compatibility
+- same Major / different Minor backward compatibility
+- Major mismatch reject
+- required Capability mismatch
+- retry / duplicate / idempotency semanticsがある場合のcontract
+- stale Master generation rejectがある場合のcontract
+
+具体test framework/code generation方式は未確定。
+
+## 15. 禁止事項
+
+- component間code sharingをcommunication contractとすること
+- shared internal type / DTO library dependency
+- direct method call
+- standard protocolにないimplicit behaviorへの依存
+- Minor updateでsemantic compatibilityを壊すこと
+- Major mismatchをnormal connectionとして許容すること
+- required Capability不足を黙って無視すること
+- standard protocolへaddon functional payload / commandを埋め込むこと
+- network arrival orderをauthoritative world operation orderとして利用すること
+
+## 16. 詳細設計へ残す事項
+
+- concrete network transport
+- serialization format
+- version field representation
+- handshake sequence
+- Capability identifier/schema
+- compatibility error code
+- Operation/Batch wire schema
+- Simulation Step field representation
+- reconnect/resync message set
+- addon compatibility meta schema
+- additional addon protocol frameworkの具体仕様
+- schema management / code generation policy
