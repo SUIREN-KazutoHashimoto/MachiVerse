@@ -6,79 +6,65 @@ Source of truth: `docs/requirements` / `docs/architecture` / `docs/protocols`
 
 ## 1. 目的
 
-本書は、MachiVerse 全体の詳細設計に先立ち、全コンポーネントと全シミュレーション領域が共有する共通契約を具体化する。
+本書はMachiVerse全体の詳細設計に先立ち、全コンポーネントと全シミュレーション領域が共有する横断契約を整理する。
 
-Phase 1 では次を確定対象とする。
+Phase 1対象:
 
 1. Simulation Step / World Time
-2. Entity ID / Operation ID / Batch ID / Master generation
-3. 決定論的順序・競合・乱数 context
-4. Config schema・分類・適用境界・履歴
-5. Protocol 共通 message envelope / version / Capability / error-result
-6. Snapshot / replay / recovery の一貫性境界
-7. Pause / resume / late Operation / retry / dedup の共通意味論
+2. Entity ID / Operation ID / Batch ID / MasterGeneration
+3. deterministic ordering / conflict / random context
+4. Config schema / classification / apply / history
+5. Protocol common envelope / version / Capability / result-error
+6. Snapshot / replay / recovery consistency
+7. Pause / late / retry / dedup / failover semantics
 
-P1-01〜P1-05 を完了し、現在の次作業は P1-06 pause / late / retry / dedup 共通意味論とする。
+P1-01〜P1-06を完了し、次作業はP1-07横断整合性レビューとする。
 
-## 2. 設計原則
+## 2. 正本文書
 
-- Authoritative World Time は wall clock ではなく Simulation Step で表現する。
-- network arrival race、thread completion order、wall clock を world outcome の決定要因にしない。
-- wire 上の識別子は固定幅・opaque とし、文字列表現は表示・ログ用途に限定する。
-- 再送・failover・reconnect で同一論理 Operation の識別子を変更しない。
-- save / replay / recovery を跨いで Entity identity と適用済み Operation identity を維持する。
-- protocol の意味契約は `docs/protocols` を正本とし、本書はその共通型・共通意味論を定義する。
-- deterministic encoding / hash / random の具体契約は `docs/design/phase1-determinism-ordering-random.md` を正本とする。
-- Config schema / classification / apply / history の具体契約は `docs/design/phase1-config-contract.md` を正本とする。
-- Protocol common envelope / compatibility / result semantics の具体契約は `docs/design/phase1-protocol-envelope.md` を正本とする。
-- persistence / replay / recovery の具体契約は `docs/design/phase1-persistence-replay-recovery.md` を正本とする。
+詳細契約は次を正本とする。
 
-## 3. Simulation Step / World Time
+- P1-02 deterministic contract: `docs/design/phase1-determinism-ordering-random.md`
+- P1-03 Config contract: `docs/design/phase1-config-contract.md`
+- P1-04 Protocol envelope: `docs/design/phase1-protocol-envelope.md`
+- P1-05 persistence/replay/recovery: `docs/design/phase1-persistence-replay-recovery.md`
+- P1-06 Operation lifecycle/retry/dedup: `docs/design/phase1-operation-lifecycle-retry-dedup.md`
 
-### 3.1 `SimulationStep`
+各 `docs/protocols` 文書は上記共通意味論を境界固有payloadへ適用する。
 
-`SimulationStep` は符号なし 64 bit 整数とする。
+## 3. 共通設計原則
+
+- authoritative World Timeはwall clockではなくSimulationStep。
+- network arrival race、thread completion order、retry timing、Master identityをworld outcomeの暗黙入力にしない。
+- world-affecting logical identityとtransport identityを分離する。
+- retry / failover / reconnectでsame logical Operationのidentityを変更しない。
+- save / replay / recoveryを跨いでWorldId、WorldSeed、EntityId、Operation identity、Config historyを維持する。
+- component間でshared DTO libraryを契約正本にしない。
+- protocol / Config / persistence不整合をsilent degradationしない。
+
+## 4. Simulation Step / World Time
 
 ```text
 SimulationStep := uint64
 ```
 
-契約:
+- initial authoritative world stateは `State(0)`。
+- `effective_step = S` のinputは `State(S) -> State(S+1)` transitionに参加する。
+- transition完了ごとにStepを1増加する。
+- Pause中はStepを進めない。
+- overrun時もStep skipしない。
+- wrap-around禁止。
 
-- epoch は world の authoritative simulation 開始直前を `0` とする。
-- world 初期状態は `step = 0` に対応する。
-- 1 回の authoritative state transition が完了するごとに 1 増加する。
-- Pause 中は増加しない。
-- overrun 時も step skip を行わない。
-- 値の wrap-around を禁止する。
-- `UINT64_MAX` 到達前に world を安全停止し、新規 step の開始を拒否する。
-- wire / persistence では unsigned 64 bit integer として保持し、浮動小数へ変換して保存しない。
-
-### 3.2 `StepRate`
-
-Simulation Step と simulation elapsed time の対応は有理数で保持する。
+Simulation rateは有理数で保持する。
 
 ```text
 StepRate {
-  numerator: uint32,   // steps
-  denominator: uint32 // seconds
+  numerator: uint32,
+  denominator: uint32
 }
 ```
 
-意味は `numerator / denominator` steps per second とする。
-
-契約:
-
-- `numerator > 0` かつ `denominator > 0`。
-- 値は最大公約数で約分した canonical form で保持する。
-- 標準値 30Hz は `{ numerator: 30, denominator: 1 }`。
-- step から elapsed seconds への変換は `step * denominator / numerator` という有理数計算を意味上の正本とする。
-- 日時・表示時刻へ変換する境界までは不必要な floating point 丸めを導入しない。
-- simulation-affecting StepRate の runtime change は Config change event として明示的 safe Step に適用し、履歴へ記録する。
-
-### 3.3 `WorldTime`
-
-共通契約上の World Time は次の組で表す。
+標準30Hzは `30/1`。
 
 ```text
 WorldTime {
@@ -87,108 +73,49 @@ WorldTime {
 }
 ```
 
-`rate_generation` は StepRate 履歴の世代番号であり、同一 world 内で 0 から単調増加する。
+wall clockは運用・表示補助に限定し、authoritative scheduling / ordering / random / ID generationへ使用しない。
 
-- `rate_generation` そのものは時間順序の tie-break に使わない。
-- StepRate 変更後も `SimulationStep` は連続して単調増加する。
-- replay 時は対象 step に有効だった `rate_generation` から StepRate 履歴を復元する。
-
-### 3.4 wall clock との境界
-
-- wall clock は運用監視、ログ時刻、UI表示補助には使用できる。
-- authoritative apply Step、same-Step ordering、乱数 context、Entity ID生成の因果順序を wall clock から決めない。
-- wall clock と World Time の相互変換値は非権威な観測値として扱う。
-
-## 4. 共通識別子
-
-### 4.1 wire representation
-
-次の識別子は wire / persistence 上で 128 bit opaque value とする。
+## 5. 共通identity
 
 ```text
+WorldId     := 128-bit opaque value
 EntityId    := 128-bit opaque value
 OperationId := 128-bit opaque value
 BatchId     := 128-bit opaque value
-WorldId     := 128-bit opaque value
 ```
 
-共通規則:
-
-- binary wire order は network byte order とする。
-- human-readable canonical form は 32 桁 lowercase hexadecimal とし、区切り文字を持たない。
-- 大文字・ハイフン付き等を入力で許容する場合も、正規化後の値比較は 128 bit binary value で行う。
-- 0 値は invalid / unassigned とし、永続オブジェクトへ割り当てない。
-- 識別子の辞書順を domain 上の優先度として解釈しない。
-
-### 4.2 `EntityId`
-
-EntityId は world 内で永続かつ一意であり、save / restart / replay を跨いで不変とする。
-
-生成は deterministic creation context から行う。Phase 1 の共通入力を次で固定する。
-
-```text
-EntityCreationContext {
-  world_id: WorldId,
-  creation_step: SimulationStep,
-  creator_domain: utf8-string,
-  creator_entity_id: EntityId | ZERO,
-  creation_kind: utf8-string,
-  local_ordinal: uint64
-}
-```
-
-規則:
-
-- `creator_domain` と `creation_kind` は protocol / subsystem ごとに固定された stable token を使用する。
-- `local_ordinal` は同一 creator context 内の deterministic ordinal であり、thread completion order から採番しない。
-- 同一 logical creation event は replay でも同一 context を生成しなければならない。
-- concrete derivation は `MV-DCBOR-v1` で context を deterministic encodeし、domain-separated SHA-256 の先頭 128 bitを利用する。
-- reserved ZERO が生成された場合のみ deterministic nonce を増加させて再導出する。
-- 異なる creation context 間の true 128 bit collision を検出した場合、runtime creation order 依存の再採番をせず fatal invariant violation とする。
-
-詳細は `docs/design/phase1-determinism-ordering-random.md` を参照する。
-
-### 4.3 `OperationId`
-
-OperationId は一つの論理 Operation の End-to-End identity とする。
-
-- origin で 1 回だけ発行する。
-- Gateway hop、Master 切替、retry、reconnect、ACK loss で変更しない。
-- payload を変更して同じ OperationId を再利用することを禁止する。
-- receiver は同じ OperationId で異なる immutable payload digest を検出した場合、protocol violation として拒否する。
-- immutable payload digest algorithm は domain-separated SHA-256 とする。
-- dedup key の主キーは OperationId とする。
-- OperationId の生成方式は origin component の責務だが、128 bit の一意性契約を満たすことを必須とする。
-
-### 4.4 `BatchId`
-
-BatchId は一つの論理 batch の identity とする。
-
-- retry では同一 BatchId を維持する。
-- batch 内容を変更した場合は新規 BatchId を発行する。
-- BatchId 単独では world outcome の ordering key としない。
-- batch 内各 Operation は個別の OperationId を必須とする。
-
-### 4.5 `MasterGeneration`
-
-Master generation は Core が権威を持つ符号なし 64 bit 整数とする。
+- binaryは16 octets。
+- human-readable canonical formは32桁lowercase hex。
+- ZEROはinvalid / unassigned。
 
 ```text
 MasterGeneration := uint64
 ```
 
-- world 起動時の初期 generation は `1`。
-- Master の authoritative reassignment ごとに 1 増加する。
-- `0` は no-master / not-assigned の sentinel としてのみ利用可能。
-- stale generation の Master output は Core が拒否する。
-- generation は Master identity と独立している。
-- wrap-around を禁止し、上限到達前に安全停止する。
+- initial 1。
+- Coreがauthority。
+- Master reassignmentごとに+1。
+- stale generation outputはreject。
 
-## 5. same-Step ordering 契約
+EntityIdはdeterministic creation contextからdomain-separated SHA-256を用いて128 bit導出する。
 
-`SimulationStep` が第一の authoritative time coordinate であり、`effective_step = S` の simulation-affecting input は `State(S)` から `State(S+1)` を生成する transition に参加する。
+OperationIdはGateway hop、retry、failover、reconnectを通して不変。
 
-same-Step の canonical total order は次の tuple で固定する。
+## 6. deterministic encoding / hash / random
+
+意味digest / ID derivation / deterministic randomには `MV-DCBOR-v1` を使用する。
+
+```text
+Hash256(data) = SHA-256(data)
+DomainHash(label, value) =
+  SHA-256(ASCII(label) || 0x00 || MV-DCBOR-v1(value))
+```
+
+World randomはshared stateful PRNG consumption orderへ依存させず、WorldSeed + SimulationStep + logical contextからstatelessに導出する。
+
+## 7. same-Step ordering
+
+canonical total order:
 
 ```text
 SameStepOrderKey = (
@@ -200,226 +127,366 @@ SameStepOrderKey = (
 )
 ```
 
-- `phase` は control / external_input / scheduled_internal / derived_internal / system_internal / finalization の固定列挙。
-- `domain_rank` は dependency DAG から deterministic topological sort で決定する。
-- 同順位 domain は stable DomainToken の ASCII bytewise ascending で決定する。
-- `conflict_scope_digest` は domain-separated SHA-256。
-- `semantic_priority` は domain schema が固定し、default 0。
-- `intent_id` は deterministic source context から導出した 128 bit identity で、最後の total-order tie-breaker とする。
+- domain rankはdependency DAGのdeterministic topological sortで決定。
+- thread completion / network arrival / Master identity / retry countをkeyへ含めない。
+- parallel calculation結果はmutation intentとしてdeterministic mergeする。
 
-次を ordering key の暗黙入力にしない。
+## 8. Config
 
-- physical arrival timestamp
-- thread ID / completion order
-- process-local iteration order
-- Gateway数
-- Master identity
-- retry count
+標準operator-editable Configはcomponent-owned UTF-8 TOML 1.0。
 
-OperationId / BatchId / EntityId の大小自体を business priority として解釈しない。
+```text
+ConfigSchemaVersion { major:uint16, minor:uint16 }
+ConfigGeneration := uint64
+ConfigDigest := Hash256
+```
 
-詳細は `docs/design/phase1-determinism-ordering-random.md` を参照する。
+field classification:
 
-## 6. Config 共通契約
+```text
+ConfigImpact := SIMULATION | OPERATIONAL | PRESENTATION
 
-Config の詳細は `docs/design/phase1-config-contract.md` を正本とする。
+ConfigMutability :=
+  RUNTIME_SAFE
+  | RESTART_REQUIRED
+  | WORLD_REGENERATION_REQUIRED
+```
 
-Phase 1 共通契約として次を固定する。
+- old compatible Configはdeterministic migration / default completionを行う。
+- migration/default補完後はatomic write-back。
+- invalid startup Configは起動拒否。
+- runtime changeはatomic change set。
+- simulation-affecting runtime changeはexplicit effective Stepを持つ。
+- saved worldのsimulation Config/historyをrestore continuationの正本とする。
 
-- operator-editable Config は component-owned UTF-8 TOML 1.0 document とする。
-- schema version は `major.minor`。
-- field は `SIMULATION / OPERATIONAL / PRESENTATION` の impact と、`RUNTIME_SAFE / RESTART_REQUIRED / WORLD_REGENERATION_REQUIRED` の mutability を持つ。
-- compatible old Config は deterministic migration と schema default completion を行い、補完後 Config を atomic write-back する。
-- unknown field、future unsupported schema、不整合、write-back failure は fail-fast とする。
-- `ConfigGeneration := uint64` で atomic revision を識別する。
-- EffectiveConfig は `MV-DCBOR-v1` と domain-separated SHA-256 (`mv.config.v1`) で `ConfigDigest` を持つ。
-- runtime file edit / filesystem event をそのまま effective Config にしない。runtime activation は explicit Config change Operation とする。
-- runtime change は stable `OperationId`、expected base generation、atomic change set を持つ。
-- `SIMULATION + RUNTIME_SAFE` change は explicit `effective_step = S` を持ち、`State(S) -> State(S+1)` transition開始前に全体を切り替える。
-- saved world の simulation Config/history を restore continuation の正本とし、current local file の差を過去へ silent override しない。
-- Config file 自体を component boundary 越しに共有しない。
+## 9. Protocol common envelope
 
-## 7. Protocol 共通契約
+標準ProtocolId:
 
-Protocol envelope / compatibility の詳細は `docs/design/phase1-protocol-envelope.md` を正本とする。
+```text
+mv.core-gateway
+mv.gateway-gateway
+mv.gateway-view
+mv.gateway-admin-view
+```
 
-Phase 1 共通契約として次を固定する。
+normal messageは `ProtocolEnvelopeV1` の共通意味を持つ。
 
-- 標準4境界は `mv.core-gateway` / `mv.gateway-gateway` / `mv.gateway-view` / `mv.gateway-admin-view` の ProtocolId を持つ。
-- normal message は `ProtocolEnvelopeV1` の共通意味を持つ。
-- protocol version は `uint16 major + uint16 minor`。
-- handshake は双方のsupported rangeから共通Majorの最大値、続いて共通Minor範囲の最大値を選ぶ。
-- CapabilityId は StableToken とし、required / provided set を相互検証する。
-- connection中のCapability changeはreconnectを基本とし、safe live renegotiationは明示Capabilityとbarrierがある場合だけ許可する。
-- `NegotiationGeneration := uint32` でnegotiated semanticsの世代を識別する。
-- MessageId / CorrelationId / CausationId / ComponentInstanceId は128-bit operational identityであり、world outcomeへ使用しない。
-- `WorldContextV1` で `world_id / basis_step / effective_step / master_generation / config_generation` を明示する。
-- `effective_step` はCore確定済みauthoritative Stepだけに使用し、candidate Stepとは分離する。
-- `OperationContextV1` でOperationId / immutable payload digest / BatchIdをtransport identityから分離する。
-- immutable Operation digestへMessageId、CorrelationId、BatchId、MasterGeneration、retry/routing metadata、candidate/final Stepを含めない。
-- common result status、stable error/result code、RetryAdviceを定義する。
-- ACKはprotocol hopの受理状態であり、authoritative world mutationのterminal successと同一視しない。
-- standard protocolのaddon情報はcompatibility metadataに限定し、addon functional payload用generic slotを設けない。
+protocol version:
 
-## 8. persistence / replay / recovery 共通契約
+```text
+ProtocolVersion { major:uint16, minor:uint16 }
+NegotiationGeneration := uint32
+```
 
-persistence の詳細は `docs/design/phase1-persistence-replay-recovery.md` を正本とする。
+- compatible highest common versionをdeterministicに選択する。
+- required / provided Capabilityを相互検証する。
+- Capability changeはreconnectを基本とする。
 
-Phase 1 共通契約として次を固定する。
+tracing identity:
 
-- Snapshot は完全な `State(S)` boundary を表し、transition途中状態を保存しない。
-- `State(S+1)` は transition S の durable `TransitionCommitRecordV1` 後に externally finalized / publishable とする。
-- `HistorySequence := uint64` の append-only durable history と SHA-256 hash chain で persistence continuity を追跡する。
-- world-affecting Operation の Core `ACCEPTED` は `OperationAcceptedRecordV1` の durability 後にのみ返す。
-- applied Operation の terminal result は対応 transition commit の durability 前に返さない。
-- Snapshot は `(snapshot_step=S, history_anchor=H)` の consistent cut を持ち、RecoveryState と `H+1` 以降のhistoryから継続する。
-- `RecoveryStateV1` は public World Stateだけでなく pending accepted Operation、dedup state、deterministic scheduler state、Config、StepRate、domain metadata 等の継続状態を含む。
-- `StateContinuityToken` で process restart を跨いだ state publication / delta continuity を識別する。
-- committed Snapshot は staging / partial Snapshot と区別し、manifest / section digest 検証後にのみ recovery candidate とする。
-- torn uncommitted tail は安全に切り捨て可能だが、committed region corruptionや acknowledged durable Operationの欠落をsilent ignoreしない。
-- recovery は latest usable Snapshot + contiguous valid history を replayし、last durable finalized stateまで復元する。
-- persistence migrationはdeterministic / non-destructiveとし、target全体検証後にのみpublishする。
-- history compactionは pending Operation、dedup retention、Config/replay guaranteeを失わない場合のみ許可する。
+```text
+MessageId
+CorrelationId
+CausationId
+ComponentInstanceId
+```
 
-## 9. Pause / resume に対する時間契約
+はいずれも128-bit operational identityでありworld orderingへ使用しない。
 
-- Pause 開始時に current SimulationStep を固定する。
-- Pause 中に受信した simulation-affecting Operation を停止 Step へ即時適用しない。
-- resume 後、Core が protocol 規則に従い future valid Step を割り当てる。
-- Pause 時間の wall-clock 長さは replay 条件に含めない。
+```text
+WorldContextV1 {
+  world_id,
+  basis_step,
+  effective_step,
+  master_generation,
+  config_generation
+}
+```
 
-## 10. persistence / replay への最低保存項目
+`effective_step` はCore確定済みauthoritative Stepだけに使用する。
 
-Snapshot / history が最低限保持または再構成可能にする項目を次とする。
+```text
+OperationContextV1 {
+  operation_id,
+  operation_payload_digest,
+  batch_id
+}
+```
 
-- WorldId
-- WorldSeed
-- SimulationStep / finalized Step frontier
-- StepRate history と current rate_generation
-- current MasterGeneration
-- EntityId を含む authoritative entity state
-- deterministic scheduler / future event state
-- accepted / scheduled / applied Operation identity と immutable payload
-- retained terminal result / dedup state
-- simulation-affecting Config generation / digest / history
-- enabled domain set / dependency declaration
-- HistorySequence / history anchor digest
-- StateContinuityToken
-- required addon / migration compatibility metadata
+ACKはhop receipt / custodyでありterminal world successとは限らない。
 
-exact dedup retention window と history floor は P1-06 で確定する。
+## 10. persistence / replay / recovery
 
-## 11. Phase 1 作業分解
+authoritative Snapshotは完全な `State(S)` boundaryだけを表す。
+
+```text
+HistorySequence := uint64
+```
+
+append-only durable historyはSHA-256 hash chainでcontinuityを検証する。
+
+重要record:
+
+```text
+world.genesis.v1
+operation.accepted.v1
+operation.scheduled.v1
+operation.terminal.v1
+config.changed.v1
+transition.committed.v1
+snapshot.committed.v1
+persistence.migrated.v1
+```
+
+- Core `ACCEPTED` はOperationAcceptedRecord durability後のみ返す。
+- `State(S+1)` はtransition S commit durability後にfinalized / publishable。
+- applied terminal resultもtransition commit durability後に返す。
+
+Snapshot consistent cut:
+
+```text
+(snapshot_step = S, history_anchor = H)
+```
+
+RecoveryStateはworld stateだけでなくpending accepted Operation、dedup state、scheduler state、Config、StepRate、domain metadataを保持する。
+
+State publication continuityには `StateContinuityToken` を使用する。
+
+## 11. Operation scheduling admission
+
+Gatewayはconfirmed Core stateとCore配布scheduling policyを用いてimmutable admission contextを確定する。
+
+```text
+OperationSchedulingAdmissionV1 {
+  admission_basis_step: SimulationStep,
+  scheduling_policy_generation: ConfigGeneration,
+  requested_not_before_step: SimulationStep | NONE,
+  requested_deadline_step: SimulationStep | NONE
+}
+```
+
+このcontextはOperation immutable digestへ含め、retry / failoverで変更しない。
+
+Core scheduling policy:
+
+```text
+OperationSchedulingPolicyV1 {
+  owner_config_generation,
+  min_lead_steps,
+  default_deadline_window_steps,
+  grace_steps,
+  late_policy
+}
+```
+
+late policy:
+
+```text
+REJECT | DEFER_WITHIN_GRACE
+```
+
+policyはSIMULATION Config。
+
+## 12. candidate / final effective Step
+
+Gateway / Masterのcandidate Stepはadvisory。
+
+Coreはhistorical scheduling policyから再計算する。
+
+```text
+canonical_candidate = max(
+  admission_basis_step + policy.min_lead_steps,
+  requested_not_before_step if present
+)
+```
+
+Core input freeze後の最小open Stepを `next_schedulable_step` とする。
+
+```text
+target_step = max(canonical_candidate, next_schedulable_step)
+```
+
+- deadline以内: targetをeffective Step。
+- deadline超過 + REJECT: `world.deadline-exceeded`。
+- deadline超過 + DEFER_WITHIN_GRACE + grace内: targetへdefer。
+- grace超過: reject。
+- finalized past Stepへretroactive applyしない。
+
+final schedulingはdurable historyへ保存する。
+
+## 13. Pause / resume
+
+worldが `State(P)` でPause中の場合:
+
+- Pause前に `effective_step=P` へschedule済みのOperationはtransition Pに残す。
+- Pause中はapplyしない。
+- Resume後の最初のtransition Pで処理する。
+
+Pause中にCoreが新規acceptしたsimulation-affecting Operationは:
+
+```text
+pause_floor_step = P + 1
+```
+
+を持ち、stopped Step Pへ後付けしない。
+
+- Pause durationだけでSimulationStep deadlineを消費しない。
+- Pause中arrival orderをresume後orderへ使用しない。
+- durable accepted Operationにwall-clock expiryを設けない。
+
+## 14. Operation lifecycle / retry
+
+Core authoritative lifecycle:
+
+```text
+UNSEEN
+ -> ACCEPTED_DURABLE
+ -> SCHEDULED_DURABLE
+ -> TERMINAL_DURABLE
+```
+
+retryはsame:
+
+- OperationId
+- immutable payload digest
+- immutable scheduling admission context
+
+を維持する。
+
+retry interval / timeout / backoffはOPERATIONAL Configでありworld Stepへ直接使用しない。
+
+client disconnect / session timeoutだけでCore accepted Operationをcancelしない。
+
+## 15. dedup retention
+
+Core dedup primary keyはOperationId。
+
+same id / different digestは `protocol.operation-payload-mismatch`。
+
+terminal OperationはWorldId lifecycle中、最小tombstoneを保持する。
+
+```text
+OperationDedupTombstoneV1 {
+  operation_id,
+  operation_payload_digest,
+  terminal_status,
+  result_code,
+  effective_step,
+  terminal_history_sequence
+}
+```
+
+rich result detailsは有限保持としてよいが、double-apply防止tombstoneはexpiryしない。
+
+## 16. Batch
+
+Batchはtransport aggregation identity。
+
+```text
+BatchDigest = DomainHash(
+  "mv.batch.v1",
+  {
+    batch_kind,
+    ordered_entries:[{operation_id, operation_payload_digest}, ...]
+  }
+)
+```
+
+- exact same logical batch retryはsame BatchIdを維持できる。
+- same BatchIdでcontents変更は禁止。
+- subset retry / re-merge contents変更はnew BatchId。
+- contained OperationIdは維持する。
+
+標準processing:
+
+```text
+BatchProcessingMode := PER_OPERATION
+BatchStatus := RECEIVED | PARTIAL | COMPLETE | REJECTED
+```
+
+Batchは暗黙all-or-nothing transactionではない。
+
+## 17. Master failover custody
+
+```text
+SOURCE_HELD
+ -> MASTER_RECEIVED
+ -> CORE_ACCEPTED
+ -> TERMINAL
+```
+
+- Master hop ACKだけでCore custody成立とはしない。
+- source GatewayはCore acceptance確認前のOperationを再送可能に保持する。
+- stale Master batch rejectだけでcontained Operationをterminal rejectにしない。
+- Core acceptance不明時はsame identity retry / status queryで収束させる。
+- Core accepted済みOperationはMaster failoverで失わない。
+
+## 18. Phase 1 作業分解
 
 ### P1-01 共通時間・識別子
 
 状態: 完了。
 
-- SimulationStep / StepRate / WorldTime
-- WorldId / EntityId / OperationId / BatchId
-- MasterGeneration
+### P1-02 決定論的順序・競合・乱数context
 
-### P1-02 決定論的順序・競合・乱数 context
-
-状態: 完了。
-
+状態: 完了。  
 正本: `docs/design/phase1-determinism-ordering-random.md`
 
-- `MV-DCBOR-v1` deterministic semantic encoding
-- SHA-256 common hash suite / domain separation
-- same-Step ordering tuple
-- deterministic dependency topological order
-- conflict scope / deterministic merge modes
-- internal EventId / IntentId
-- EntityId derivation algorithm
-- stateless RandomContextV1 / RandomWord64
-- rejection sampling / uniform binary64 mapping
-- immutable Operation payload digest algorithm
-- deterministic state diagnostic hash algorithm
+### P1-03 Config詳細契約
 
-### P1-03 Config 詳細契約
-
-状態: 完了。
-
+状態: 完了。  
 正本: `docs/design/phase1-config-contract.md`
 
-- TOML 1.0 Config document / component ownership
-- `ConfigSchemaVersion` major.minor / deterministic migration
-- default completion / atomic write-back
-- SIMULATION / OPERATIONAL / PRESENTATION classification
-- RUNTIME_SAFE / RESTART_REQUIRED / WORLD_REGENERATION_REQUIRED classification
-- `ConfigGeneration` / `ConfigDigest`
-- atomic runtime ConfigChangeSet / optimistic base generation check
-- simulation effective Step boundary
-- Config history / save / replay / restore contract
-- cross-component effective information distribution boundary
+### P1-04 Protocol共通envelope
 
-### P1-04 Protocol 共通 envelope
-
-状態: 完了。
-
+状態: 完了。  
 正本: `docs/design/phase1-protocol-envelope.md`
-
-- `ProtocolEnvelopeV1`
-- ProtocolId / MessageType / ProtocolVersion
-- MessageId / CorrelationId / CausationId / ComponentInstanceId
-- WorldContextV1 / OperationContextV1
-- NegotiationGeneration
-- deterministic version selection handshake
-- required / provided Capability negotiation
-- addon compatibility metadata boundary
-- immutable Operation payload digest inclusion/exclusion
-- common result / error / retry taxonomy
-- ACK / terminal result separation
 
 ### P1-05 persistence / replay / recovery
 
-状態: 完了。
-
+状態: 完了。  
 正本: `docs/design/phase1-persistence-replay-recovery.md`
 
-- `State(S)` consistent Snapshot boundary
-- `HistorySequence` / durable history hash chain
-- durable Operation acceptance / terminal result boundary
-- `TransitionCommitRecordV1` / finalized Step frontier
-- `StateContinuityToken`
-- `RecoveryStateV1` / `SnapshotManifestV1`
-- `(SnapshotStep, HistoryAnchor)` consistent cut
-- running Snapshot / stop-the-world fallback
-- recovery checkpoint / deterministic replay algorithm
-- torn tail / committed corruption distinction
-- history compaction safety conditions
-- deterministic non-destructive persistence migration
+### P1-06 Pause / late / retry / dedup
 
-### P1-06 pause / late / retry / dedup 共通意味論
+状態: 完了。  
+正本: `docs/design/phase1-operation-lifecycle-retry-dedup.md`
 
-状態: 次に着手する。
+確定:
 
-- candidate/effective Step
-- deadline / grace / defer / reject
-- Pause queue assignment
-- retry
-- stale generation
-- duplicate handling / dedup retention
-- Batch partial completion / retry state machine
-- Master failover custody
+- scheduling admission context / Core-owned policy
+- candidate再計算 / authoritative effective Step
+- deadline / grace / late state machine
+- Pause floor rule
+- retry identity
+- world-lifetime terminal dedup tombstone
+- BatchDigest / PER_OPERATION partial completion
+- Master failover custody / status recovery
 
 ### P1-07 横断整合性レビュー
 
-- `docs/architecture` との矛盾確認
-- `docs/protocols` へ確定契約を反映
-- Phase 2〜4 の blocker 0 件確認
+状態: 次に着手する。
 
-## 12. 未決定事項
+- `docs/architecture` / `docs/protocols` の旧TBD・矛盾確認
+- terminology / field name / stable code consistency
+- Phase 2〜4が追加cross-cutting仮定なしで開始可能か確認
+- Issue #13 completion criteria確認
 
-P1-05 完了時点の未決定事項は次の通り。
+## 19. P1-06完了時点の未決定事項
 
-- exact dedup retention window
-- candidate Step / deadline / grace concrete field
-- Pause queue / late Operation の具体規則
-- Batch ACK / partial completion / retry state machine
-- Master failover custody の exact state machine
-- authoritative state diagnostic hash の large-world slice/tree granularity
-- physical storage product / concrete binary serialization / compression / encryption
+Phase 1横断blocker候補として残るもの:
 
-これらは Phase 1 内の後続作業または component implementation 詳細で解消し、Phase 1 完了時には横断 blocker を 0 件とする。
+- authoritative state diagnostic hashのlarge-world slice/tree granularity
+- P1-04本文へのP1-06追加result code / immutable scheduling contextの最終同期確認
+- P1-05本文に残るP1-06参照TBDの最終同期確認
+
+component implementation詳細としてPhase 1完了後へ残せるもの:
+
+- physical storage product
+- concrete binary serialization / compression / encryption
+- physical network transport
+- exact operational timeout/backoff数値
+- Gateway/Core queue/index data structure
+
+P1-07で横断blockerを0件にし、Phase 1完了可否を判定する。
