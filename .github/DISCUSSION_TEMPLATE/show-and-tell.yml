@@ -1,0 +1,37 @@
+title: "[Show and tell] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        MachiVerseを使った試作、検証、可視化、連携例などを共有するためのフォームです。
+        公式機能・公式アドオンとしての採用を意味するものではありません。
+
+  - type: textarea
+    id: overview
+    attributes:
+      label: 共有内容
+      description: 何を作成・検証したのかを説明してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: relation
+    attributes:
+      label: MachiVerseとの関係
+      description: 使用したコンポーネント、Protocol、アドオン、ブランチ等を分かる範囲で記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: links
+    attributes:
+      label: 参考情報
+      description: デモ、コード、画像、関連Discussion等があれば記載してください。第三者の権利や機密情報を含めないでください。
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 確認
+      options:
+        - label: 共有内容に公開できない機密情報や第三者の権利を侵害する情報を含めていません
+          required: true
