@@ -1,144 +1,242 @@
-# ゲートウェイ・一般ビュー間プロトコル設計書
+# Gateway・General View間Protocol設計書
 
 ## 1. 所有者
 
-本プロトコルの所有者はゲートウェイです。
+本protocolのownerはGatewayです。
 
 ## 2. 目的
 
-一般ビューが、利用者ロールに応じてシミュレーション情報を参照し、許可された範囲でシミュレーションまたは下位利用者へ操作要求を送るための契約を定義します。
+General Viewが利用者roleに応じてworldを参照・参加・操作し、Gatewayのconfirmed publication state、同期状態、Operation resultを安全に扱うための契約です。
 
-## 3. 利用者ロール
+General ViewはWeb UIであり、world renderingにはThree.jsを使用します。ただしThree.jsはView側presentationであり、authoritative World StateはSimulation Coreにあります。
 
-本プロトコルでは以下の4ロールを扱います。
+## 3. 利用者role
 
-1. ダイバー
-2. スペクテイター
-3. モデレーター
-4. アドミニストレーター
+本protocolは次の4roleを扱います。
 
-ロールごとの具体的な権限一覧は今後詳細化しますが、現時点の基本方針は次の通りです。
+1. Diver
+2. Spectator
+3. Moderator
+4. Administrator
 
-- ダイバー: シミュレーション住民として参加し、住民と同程度の干渉が可能。
-- スペクテイター: シミュレーションへ一切干渉せず、システムのバイタルに関係しない程度のステータスのみ参照可能。
-- モデレーター: シミュレーションおよび下位利用者へ限定的に干渉可能。ただしクリティカルな干渉は禁止。参照範囲はスペクテイターと同等。
-- アドミニストレーター: シミュレーションへ完全に干渉可能で、一般ビュー向けの全ステータスを参照可能。
+- Diver: existing residentとしてworldへ参加し、通常residentと同程度のsimulation interferenceを持つ。
+- Spectator: simulationへinterferenceせず、system vitalに関係しない範囲の公開statusを参照する。
+- Moderator: simulationおよびlower userへ限定的にinterfere可能だがcritical operationは禁止。
+- Administrator: General View上でsimulationへ広範にinterfere可能で、General View向け全公開statusを参照可能。
 
-一般ビューのアドミニストレーターは、管理ビューの運用権限とは別概念です。
+General View AdministratorはAdmin View operatorとは別auth/authz domainです。
+
+各roleのexact API/operation list、「vitalではないstatus」「critical interference」の具体定義は詳細設計で決定します。
 
 ## 4. 設計原則
 
-- 一般ビューはゲートウェイのコード、DLL、内部型を参照しない。
-- ゲートウェイは一般ビューのコード、DLL、内部型を参照しない。
-- 双方は本プロトコル設計書を契約として実装する。
-- 参照・操作要求はすべてゲートウェイで認証・認可される。
-- UI 側の表示制御だけで権限制御を完結させない。
-- コアへ影響する操作は、ゲートウェイが権限検証後にコア向けプロトコルへ変換・中継する。
-- コア内部モデルをそのまま公開しない。
-- 一般ビュー向け権限と管理ビュー向け運用権限を混同しない。
+- General ViewとGatewayはcode、DLL、internal type、shared DTO libraryを共有しない。
+- requestはGatewayでauthn/authzする。
+- UI hide/showだけでauthorizationを完結させない。
+- unauthorized OperationをCoreへ送らない。
+- ViewはGateway cache/internal structureへ依存しない。
+- View display predictionをauthoritative stateとして扱わない。
+- protocol version / Capability mismatchをsilentに無視しない。
+- addon functional payloadをstandard protocolへ載せない。
 
-## 5. 通信カテゴリ
+## 5. Auth / login / session
 
-### 5.1 認証・セッション
+General View userはconnected Gatewayへlogin requestを送ります。
 
-一般ビュー利用者を識別し、現在のロールとセッション状態をゲートウェイが検証できる通信を定義します。
+Q241に従い、Gateway側ではそのlogin requestをMaster Gatewayへproxyし、login処理はMasterで確定します。General Viewから見た外部contractはconnected Gatewayとの間に維持します。
 
-具体的な認証方式、資格情報、セッション方式は未確定です。
+Protocolは少なくとも次の状態を扱える必要があります。
 
-### 5.2 状態参照
+- unauthenticated
+- authentication in progress
+- authenticated session
+- authorization/role information
+- session invalid/revoked
+- reconnect/resync中のsession state
 
-利用者ロールに応じて参照可能なシミュレーション状態・公開ステータスを取得します。
+具体credential、token、IdP、session formatは未確定です。
 
-スペクテイターとモデレーターは、システムのバイタルに関係しない程度のステータスを参照できます。
+## 6. Role change / revoke
 
-アドミニストレーターは一般ビュー向けに公開されるすべてのステータスを参照できます。
+- connection中にroleが変わり得る。
+- role changeには明示的なeffective pointを持たせる。
+- change前にaccepted済みOperationとchange後のnew Operationを区別できるようにする。
+- privilege revoke後にold privilegeでnew Operationを送信・成立させない。
+- severe revokeではexisting session/credential invalidationをViewへ通知可能にする。
 
-ダイバーの参照範囲は、住民としての参加要件を含め今後定義します。
+## 7. State publication
 
-### 5.3 ダイバー参加・操作
+General ViewはGatewayがpublishするconfirmed stateを基準に表示します。
 
-ダイバーがシミュレーション住民として参加し、住民と同程度の操作要求を送るための通信カテゴリです。
+State publicationには意味上少なくとも次を判別できる必要があります。
 
-参加・離脱・再接続・対象住民との対応関係・操作一覧は今後定義します。
+- display basisとなるWorld Time / Simulation Step
+- confirmed stateであること
+- continuity / freshness判断に必要な情報
+- resync state
 
-### 5.4 モデレーター操作
+互換性のない異なるWorld Time/Stepのstateを1つのauthoritative-looking displayとして混在させません。
 
-モデレーターがシミュレーションまたは下位利用者へ限定的な操作要求を送るための通信カテゴリです。
+## 8. Interpolation / prediction
 
-クリティカルな操作はゲートウェイで拒否します。具体的なクリティカル判定は今後定義します。
+Smooth displayのため、Viewはpresentation layerでinterpolationやshort predictionを行えます。
 
-### 5.5 アドミニストレーター操作
+- prediction/interpolationはnon-authoritative。
+- Core/Gateway confirmed stateと区別する。
+- predictionがworld outcomeへ影響してはならない。
+- confirmed stateと異なる場合はreconcile/correctする。
 
-一般ビューのアドミニストレーターがシミュレーションへ完全な干渉要求を送るための通信カテゴリです。
+## 9. Diver操作のreal-time体験
 
-ただし、各コンポーネントのログ閲覧、Config変更、システム運用コマンドなどの管理ビュー専用機能は本プロトコルに含めません。
+Q232に従い、Gateway publication delayが存在してもDiverからはreal-timeに操作しているように感じられる体験を目指します。
 
-### 5.6 操作結果
+- View側local prediction / immediate feedbackを許容する。
+- predicted resultをauthoritative mutationとして扱わない。
+- Core confirmed result到着時にreconcileする。
+- correctionが必要な場合でもworld outcomeはCoreのauthoritative resultに従う。
 
-利用者操作に対する成功・拒否・権限不足・妥当性エラー・一時的失敗などの結果を返します。
+Exact prediction model、correction UI、animationは詳細設計で決定します。
 
-具体的な結果コード・エラー表現は今後定義します。
+## 10. Diverとresidentのbinding
 
-### 5.7 接続・通信状態
+Q260〜Q264に従います。
 
-必要に応じて、データの鮮度、取得失敗、再接続など、一般ビューが表示判断に利用する通信状態を定義します。
+### 10.1 新規residentを生成しない
 
-## 6. 認可原則
+- Diver joinのために専用new residentを生成しない。
+- worldにexistingな通常residentへbindする。
+- Diver-controlled residentも通常のphysics、social、economy、law、health等のworld ruleに従う。
 
-ゲートウェイは要求ごとに少なくとも以下を検証します。
+### 10.2 希望条件
 
-- 利用者が認証済みか
-- 現在の利用者ロール
-- 要求した参照・操作がロールに許可されているか
-- 対象利用者への操作の場合、上下関係上許可されているか
-- 要求形式がプロトコルに適合しているか
+- Diverはbind対象についてbroad preferenceをrequest可能にする方向とする。
+- 希望条件を満たすresidentが割り当てられることは保証しない。
+- arbitrary residentを無条件にtake overできるprotocolにはしない。
 
-シミュレーション上その操作が実行可能かという最終判断は、コアへ到達する操作についてシミュレーションコアが行います。
+Preference fieldやmatching ruleは詳細設計で決定します。
 
-## 7. バージョニングと接続互換性
+### 10.3 1 resident / 1 Diver
 
-本プロトコルは `Major.Minor` の概念を持ちます。
+- 原則1residentにつき1Diver。
+- disconnectを理由に別Diverへ自動的にbindingを移さない。
+- concurrent duplicate controlを成立させない。
 
-- メジャーバージョンが一致する場合のみ接続を許可する。
-- メジャーバージョンが異なる場合は接続を拒否する。
-- 同一メジャー内では異なるマイナーバージョン間の接続を許可する。
-- 新しいマイナーバージョンは、同一メジャーの古いマイナーバージョンとの後方互換性を維持する。
-- マイナー更新で既存必須フィールドの削除、既存意味の非互換変更、既存型の非互換変更を行わない。
-- 後方互換性を維持できない変更はメジャーバージョン更新として扱う。
+### 10.4 same Diver identity
 
-具体的なバージョン表現、接続時ハンドシェイク、メジャー不一致時のエラー形式、マイナー差による利用可能機能の判定方式は今後定義します。
+- reconnectしても必ず同じDiver identityを使う。
+- normal disconnect / error disconnectでDiver identityの扱いを変えない。
 
-## 8. 禁止事項
+### 10.5 resident death
 
-- ゲートウェイを迂回したコアへの直接アクセス
-- 権限検証なしの操作中継
-- スペクテイターからのシミュレーション干渉
-- モデレーターによるクリティカル操作
-- 下位ロールから上位ロール専用機能へのアクセス
-- 一般ビューのアドミニストレーターを管理ビュー運用者と同一視すること
-- 管理ビュー専用のログ・Config・運用コマンドを本プロトコルへ混在させること
-- ゲートウェイ内部キャッシュ構造への依存
-- 共有 DTO ライブラリへの依存
-- マイナーバージョン更新で後方互換性を破壊すること
-- メジャーバージョンが異なる相手との通常接続を許可すること
+- controlled residentが死亡した場合、そのresidentは通常のworld death semanticsに従う。
+- Diver identityは消滅させない。
+- next participationで別existing residentへbind可能なruleを持てるが、new resident生成はしない。
 
-## 9. 今後定義する詳細
+## 11. Disconnect中のresident
 
-- 物理通信方式
-- 認証方式
-- セッション管理方式
-- ロール表現
-- ロール付与・変更・剥奪方式
-- 各ロールの参照 API / メッセージ一覧
-- 各ロールの操作 API / メッセージ一覧
-- 「システムのバイタルに関係しないステータス」の定義
-- 「クリティカルな干渉」の定義
-- ダイバー参加・離脱・再接続
-- 下位利用者の定義とモデレーター操作範囲
-- 操作結果・エラー形式
-- データ鮮度の表現
-- ページング・範囲指定
-- バージョン表現・ハンドシェイク方式
-- メジャー不一致時のエラー形式
-- マイナー差による機能判定方式
-- 更新通知方式
+- Disconnectしてもresidentをworldからremoveしない。
+- World Timeをrewindしない。
+- normal disconnectとerror disconnectを同じ基本semanticsで扱う。
+- Diverは不在時にresidentへ優先させるbehavior/action方針を事前設定可能にする。
+
+Exact absence-policy schemaやAI behavior implementationは未確定です。
+
+## 12. Reconnect / resync
+
+Reconnect時は可能な限りsame session / same Diver identityを復元し、Gatewayのcurrent publication basisへ同期してからnormal displayへ戻ります。
+
+- Viewはsyncing/resyncing状態を明示表示できる。
+- Gatewayがresync中の場合、それをconnected userへ通知する。
+- inconsistent state sequenceをnormal confirmed stateとして表示しない。
+- old cached View stateをcurrent authoritative-looking stateとしてblind reuseしない。
+
+## 13. Operation request
+
+General Viewからのworld-affecting requestはstable OperationとしてGatewayへ送ります。
+
+Gatewayはrole/session/operation type/target等を検証し、authorized requestだけをdownstreamへ送ります。
+
+Protocolは意味上次を扱える必要があります。
+
+- client request correlation
+- Operation identityまたはserver側stable Operation identityとの対応
+- requested operation type / target / content
+- accepted / rejected / pending
+- final result
+- applicable World Time/Step informationが必要な場合の表示
+
+Exact fieldは詳細設計で定義します。
+
+## 14. Spectator / Moderator / Administrator
+
+### Spectator
+
+- simulation mutation requestは許可しない。
+- public non-vital statusのみ参照可能。
+
+### Moderator
+
+- defined lower-user / simulation operationsのみ許可する。
+- critical operationはGatewayでrejectする。
+
+### General View Administrator
+
+- General Viewで定義されたsimulation interferenceを行える。
+- Admin View専用のcomponent log、Config management、system operational commandを本protocolへ混在させない。
+
+## 15. Operation result / error
+
+少なくとも意味上次を区別可能にします。
+
+- success
+- authorization reject
+- protocol/validation reject
+- world-state/simulation-rule reject
+- duplicate / already processed
+- temporarily unavailable / resyncing
+- session expired/revoked
+- capability/version incompatibility
+
+Exact error codeとuser-facing textは詳細設計で決定します。
+
+## 16. Protocol version / Capability
+
+- Major mismatchはconnection reject。
+- same MajorではMinor backward compatibilityを維持する。
+- connection時にrequired/optional Capabilityをnegotiationする。
+- Major mismatch、required Capability mismatchのdiagnostic reasonを利用者へ表示可能にする。
+- reconnectはrenegotiationの基本境界。
+
+Addon関連はinstall/identity/version/required Capability等のcompatibility meta informationだけをstandard protocolで扱います。Addon functional data/commandは載せません。
+
+## 17. 禁止事項
+
+- Gateway bypassによるCore direct access
+- UI-side authorizationだけでworld Operationを許可すること
+- Spectatorのsimulation mutation
+- Moderatorのundefined critical operation
+- General View AdministratorとAdmin View operatorの同一視
+- Diver join時の専用new resident自動生成
+- disconnect時のautomatic Diver swap
+- View predictionのauthoritative化
+- resync中のinconsistent stateをnormal confirmed stateとして表示すること
+- shared DTO library dependency
+- Major mismatchでnormal connection
+- standard protocolへのaddon functional payload
+
+## 18. 詳細設計へ残す事項
+
+- physical transport / serialization
+- auth credential / session representation
+- exact role permission matrix
+- public status field set
+- critical operation definition
+- Diver preference/matching schema
+- resident binding identifier/schema
+- absence behavior policy schema
+- interpolation/prediction/correction messages
+- state publication/full-delta strategy
+- Operation request/result schema
+- resync notification/status representation
+- pagination/range request
+- version/Capability handshake and error code

@@ -1,136 +1,287 @@
-# 管理ビュー設計
+# Admin View設計
 
 ## 1. 目的
 
-管理ビューは、MachiVerse の各種コンポーネントを運用・診断・設定するための運用者向け領域です。
+Admin ViewはMachiVerse各componentを運用・診断・設定するためのoperator向けUIです。
 
-一般ビューの利用者ロールとは別系統であり、一般ビュー上のアドミニストレーター権限を管理ビュー権限として扱いません。
+General Viewの利用者roleとは別系統であり、General View Administrator権限をAdmin View permissionとして扱いません。
 
-管理ビューは、各コンポーネントのログやステータスを参照し、コマンドを通じて設定変更やシミュレーションへの運用上の干渉を行えることを目的とします。
+Admin Viewは各componentの公開可能なlog、health/status、metrics、Config、operational command、simulation Admin Operation等を扱います。
 
-## 2. 主な責務
+## 2. Auth / permission domain
 
-- 各コンポーネントの稼働状態監視
-- 各コンポーネントのログ参照
-- 診断情報・性能情報の表示
-- 各コンポーネントの外部Config確認・変更の入口
-- 運用コマンドの入力・実行結果表示
-- シミュレーションへの運用上の干渉
-- 障害・異常状態の表示
-- 管理操作の監査可能性を提供するUI境界
+- General ViewとAdmin Viewのauth/authz domainを明確に分離する。
+- General View Administratorを理由にAdmin View accessを自動付与しない。
+- Admin View userはGatewayを通じてloginする。
+- Q241に従い、login requestはconnected GatewayからMaster Gatewayへproxyされ、Masterでloginを確定する。
+- privilege change/revokeは接続中にも反映可能とし、old privilegeでnew Admin Operationを継続させない。
+- auth outage時もpermission checkをbypassしない。
 
-## 3. 責務外
+Credential、token、IdP、session technologyは未確定です。
 
-- 一般利用者向けシミュレーション参加機能
-- ダイバー、スペクテイター、モデレーター、アドミニストレーターという一般ビュー利用者ロールの提供
-- シミュレーションルールそのものの実装
-- シミュレーション状態の正本管理
-- コア内部状態の直接変更
-- 他コンポーネント内部実装へのコード依存
-- UIだけで完結する認証・認可
+## 3. 主な責務
 
-## 4. 一般ビューとの境界
+- component health/status表示
+- structured log参照
+- metrics / diagnostic state表示
+- Config current value・classification・validation stateの表示
+- permitted Config change request UI
+- operational command UI
+- simulation Admin Operation UI
+- high-impact operation confirmation
+- audit trailの参照
+- protocol / Capability mismatchの診断表示
+- Gateway resync / Master generation等のarchitecture-specific status表示
+- save / replay / recovery status表示
+- 将来のaddon managementの運用入口候補
 
-一般ビューと管理ビューは、権限の上下関係ではなく目的の異なる別領域です。
+## 4. 責務外
 
-一般ビューはシミュレーション利用者向けであり、利用者ロールに応じてシミュレーションへ参加・参照・干渉します。
+- General View利用者向け参加機能
+- Diver / Spectator / Moderator / General View Administrator roleの提供
+- authoritative World State管理
+- simulation rule implementation
+- Core internal mutable stateへのdirect access
+- other component Config fileのdirect edit
+- component internal code/APIへのdirect dependency
+- UIだけで完結するauthorization
+- generic Undoによるhistory消去
+- addon implementationそのものをAdmin View内部で実行・改変すること
 
-管理ビューはシステム運用向けであり、対象はシミュレーションそのものだけでなく、シミュレーションコア、ゲートウェイ等の各コンポーネントの状態、ログ、Config、運用コマンドです。
+## 5. Component health / metrics
 
-一般ビュー上のアドミニストレーターであることを理由に、管理ビューへのアクセス権を自動的に付与しません。
+Admin Viewは一般的なhealth metricに加え、MachiVerse固有の状態を確認可能にします。
 
-## 5. 主要機能
+少なくとも次を対象にできます。
 
-### 5.1 コンポーネントステータス監視
+- CPU / memory / connection等
+- Simulation Core current Simulation Step
+- standard 30Hz targetに対するlag
+- Master Gateway identity / generation
+- resyncing Gateway
+- Gateway publication buffer state
+- Operation retry増加
+- relevant dedup/idempotency diagnostic
+- protocol / Capability mismatch
+- Config validation error
+- save / recovery state
 
-各コンポーネントの稼働・停止・異常・負荷・処理状況等、運用上必要なステータスを参照します。
+Exact metric name、sampling interval、alert thresholdは詳細設計で決定し、調整可能な数値はcomponent Configへ置きます。
 
-具体的な監視項目は今後定義します。
+## 6. Structured log
 
-### 5.2 ログ参照
+各componentはstructured logを基本とします。
 
-各コンポーネントが出力する運用・診断ログを管理ビューから参照できるようにします。
+Admin Viewでは必要に応じ次のcontextを使って検索・関連付けられる方向とします。
 
-ログの保存先、収集方式、検索方式、保持期間は今後定義します。
+- component / instance
+- Simulation Step / World Time
+- Operation ID
+- Batch ID
+- Master generation
+- session/user audit context
 
-### 5.3 Config確認・変更
+Log retention、capacity、rotationはcomponentごとの外部Configで設定し、audit logとhigh-volume diagnostic logを同じ保持条件へ固定しません。
 
-各コンポーネントが所有する外部Configを確認し、許可された設定について変更要求を出せるようにします。
+Storage/collector/search technologyは未確定です。
 
-管理ビューが他コンポーネントのConfigファイルを直接編集することは前提にせず、各コンポーネントの管理境界を通じて変更します。
+## 7. Config参照・変更
 
-動的反映可能な設定と再起動を必要とする設定の区別は今後定義します。
+### 7.1 Ownership
 
-### 5.4 運用コマンド
+各componentが自身のConfig fileを所有します。
 
-管理ビューは、各コンポーネントへ定義済みの運用コマンドを送信できるようにします。
+Admin Viewはother component Config fileをdirect read/writeするのではなく、管理protocolを通じて公開値とchange requestを扱います。
 
-具体的なコマンド一覧、対象コンポーネント、権限、成功・失敗、冪等性、タイムアウト等は各管理プロトコルで定義します。
+### 7.2 Classification
 
-### 5.5 シミュレーションへの運用干渉
+Admin Viewは必要に応じ、Config itemが次のどのclassificationかを表示できる方向とします。
 
-管理ビューからシミュレーションへ運用上必要な干渉を行えるようにします。
+- simulation-affecting / display-or-ops-only
+- runtime mutable
+- restart required
+- world regeneration required
+- other explicit safe boundary required
 
-ただし、コア内部状態を直接変更せず、定義されたプロトコル・コマンドを通じて要求します。シミュレーション上の最終的な妥当性判断はシミュレーションコアが担当します。
+### 7.3 Change semantics
 
-### 5.6 障害・診断
+- GatewayがAdmin permission、request format、target、allowed conditionを検証する。
+- Target componentが自身のtype/range/cross-constraintを検証する。
+- invalid change setをpartial applyしない。
+- simulation-affecting runtime changeはexplicit Simulation Stepへatomicに適用しhistoryへ記録する。
+- startup Configに不整合があればcomponent/worldを起動しない。
+- generic Undoは設けない。元の値へ戻す場合もnew Admin Operation/change requestとして実行する。
 
-障害原因調査に必要なログ、メトリクス、診断状態、通信状態等を確認できるようにします。
+### 7.4 Old Config compatibility
 
-### 5.7 監査
+Old Configにnew fieldが不足する場合、owner componentはdefaultを適用し、そのfieldをConfig fileへ追加するQ214要件に従います。
 
-重要な設定変更やコマンドについて、誰が、いつ、何を、どの対象へ行い、結果がどうなったかを追跡可能にすることを目標とします。
+Admin View自身がそのfile migrationを直接実行するとは限りません。
 
-具体的な監査方式は今後定義します。
+## 8. Operational command
 
-## 6. コンポーネントへのアクセス
+Admin Viewはdefined operational commandをtarget componentへrequestできます。
 
-管理ビューは各コンポーネントの内部コードへ直接依存しません。
+Commandごとに少なくとも次を明確にする必要があります。
 
-管理操作は、各コンポーネントが公開する管理用プロトコルまたはゲートウェイが提供する管理境界を通じて行います。
+- target
+- permission
+- parameter
+- simulation-affecting classification
+- safe execution boundary
+- idempotency / retry
+- timeout
+- result / error semantics
 
-現時点ではゲートウェイが管理ビューとのプロトコル所有者ですが、シミュレーションコア以外のコンポーネント自身への管理コマンドをゲートウェイが中継するのか、各コンポーネント向けの独立管理プロトコルを設けるのかは未確定です。
+Concrete command listは詳細設計で決定します。
 
-## 7. データ所有権
+## 9. Simulation Admin Operation
 
-管理ビューはログ・ステータス・Config・シミュレーション状態の正本ではありません。
+Simulationへ影響するAdmin OperationはAdmin View→Gateway→Simulation Coreの経路を使用します。
 
-各情報の正本は、それを所有する各コンポーネントにあります。管理ビューは運用のために参照・操作要求を行うUI境界です。
+Q235/Q275に従い責務を分離します。
 
-## 8. セキュリティ・権限原則
+### Gateway
 
-- 管理ビューは一般ビュー利用者ロールとは別の認証・認可境界として扱う。
-- 一般ビューのアドミニストレーター権限を管理ビュー権限へ流用しない。
-- UI上の表示制御だけで管理権限を保証しない。
-- 設定変更・コマンド実行はサーバー側で認可する。
-- 重要操作は監査可能にする。
-- 対象コンポーネント側でも要求の妥当性を検証する。
+- Admin authn/authz
+- operation format
+- target
+- Admin operationとしてのallowed condition
+- protocol-level validation
 
-具体的な認証・認可モデルは今後定義します。
+### Simulation Core
 
-## 9. 禁止事項
+- UI上のAdmin roleを解釈しない。
+- 全Operation共通のWorld State invariant/state-transition consistencyを維持する。
+- Gateway-approved Admin Operationでもcommon invariantを破壊するstate transitionを無条件適用しない。
 
-- 一般ビュー機能と管理ビュー機能の権限体系を混同すること
-- 一般ビューのアドミニストレーターを自動的にシステム運用者として扱うこと
-- コア内部状態を直接書き換えること
-- 他コンポーネントのConfigファイルを管理ビューから直接編集すること
-- UIだけで認可を完結すること
-- 管理ビューをログやステータスの唯一の正本にすること
-- プロトコルに定義されていない内部管理APIへ依存すること
+Simulation-affecting Admin Operationは、単にAdmin由来という理由でunconditional highest priorityにしません。Simulation-non-affecting operationに限りAdmin highest priorityを許容します。
 
-## 10. 今後決定が必要な事項
+Login以外のAdmin Core OperationをMaster Gateway pathへ統一するかは未確定です。
 
-- 管理ビュー利用者の認証・権限モデル
-- 管理対象コンポーネント一覧
-- コンポーネントごとの管理プロトコル構成
-- ログ取得・集約方式
-- 監視メトリクス一覧
-- Config変更可能範囲
-- Config変更の反映方式
-- 運用コマンド一覧
-- シミュレーションへの運用干渉コマンド一覧
-- コマンドの承認フロー要否
-- 監査ログ要件
-- アラート機能
-- 管理ビューの技術スタック
-- 障害対応フロー
+## 10. High-impact operation
+
+World destruction、大量変更、time control、大規模Config change等のhigh-impact Admin Operationは追加確認・audit対象とします。
+
+- actor
+- target
+- requested content
+- Operation ID
+- applicable Simulation Step
+- result
+- reject reason
+
+等を追跡可能にします。
+
+Exact high-impact category、confirmation count、multi-person approval、UI flowは詳細設計で決定します。
+
+## 11. Audit / no generic Undo
+
+Admin Operationは少なくとも次をaudit可能にします。
+
+- actor
+- request time
+- Operation ID / request ID
+- operation type
+- target
+- request content
+- application Simulation Step / effective boundary
+- result
+- reject reason
+- related Config change
+
+Generic Undoは設けません。
+
+Past Operationをhistoryから消して戻すのではなく、以前のvalue/stateへ近づけるためのnew Operationを実行し、そのnew Operationもauditします。
+
+Savepoint recovery / replayは別のrecovery conceptです。
+
+## 12. Pauseとの関係
+
+- Pause中もAdmin requestの受信・auth・queue保持を可能にする。
+- simulation-affecting OperationはPause中のstopped Simulation Stepへ曖昧applyしない。
+- Resume後のexplicit valid Stepへdeterministicにassignmentする。
+- simulation-non-affecting operational actionはPause中でも実行可能なcategoryを持てる。
+
+## 13. Addon managementの位置付け
+
+MachiVerseはofficial addonとthird-party addonを許容します。
+
+Addonはcomponent単位で設定可能です。
+
+Admin Viewをaddon install/update/disable/removeの運用入口にすることは望ましい方向ですが、**Admin Viewからのaddon installation機能そのものはまだ確定済みstandard requirementではありません。**
+
+将来その機能を持たせる場合も、Admin Viewがtarget component内部へ無制限direct accessする構造にはしません。
+
+## 14. Addon protocol boundary
+
+- Standard protocolへaddon functional payload、addon command、generic extension data areaを載せない。
+- Addon install/identity/version/required/provided Capability等のconnection safety/compatibility meta informationはstandard protocolで交換可能。
+- Addon-specific cross-component functional communicationはprotocol framework addon等とadditional protocol側へ分離する。
+
+Concrete addon API/package/runtime loading方式は未確定です。
+
+## 15. Addon compatibility / startup safety
+
+- addon target component/protocol version、required/provided Capability、dependency addon等を検証可能にする。
+- addon configurationに不整合があれば重大度に関係なくtarget componentを起動しない。
+- saved worldが依存するaddon/version/Capabilityに不整合がある場合も、explicit migrationが完全成功しない限りworldを起動しない。
+- addon updateはexplicit operationとし、apply前にcompatibility/Capability/Config impactを確認する。
+- simulation-affecting addon updateはsafe Simulation Step/restart boundary等でapplyする。
+- addon disable/remove前にdependencyとpersistent world/save impactを確認する。
+
+## 16. Official addon trust
+
+Official addonはstore-style distribution routeを持つ方向とし、少なくともhash verificationまたは同等のintegrity verificationを行います。
+
+- Hash aloneはpublisher identity proofではない。
+- exact hash algorithm、signature、metadata、verification granularity、failure handlingは未確定。
+- Official addonとして提供する保証範囲はthird-party addonと区別する。
+
+## 17. Third-party addon trust
+
+Third-party addonはoperator/user自身の責任で導入する方針です。
+
+- Official addonと同等の保証を自動的に与えない。
+- UI上でofficial / third-partyのtrust differenceを明確に区別する方向とする。
+- Third-party addonであってもMachiVerse standard component/protocol boundaryを黙って破壊してよいわけではない。
+
+Sandbox、permission model、signature requirement等の具体security mechanismは未確定です。
+
+## 18. Protocol / Capability error display
+
+Admin Viewではoperatorが少なくとも次を診断可能にする方向です。
+
+- Major protocol mismatch
+- required Capability missing
+- addon compatibility mismatch
+- Config invalid
+- Master generation/problem
+- Gateway resync
+- save/recovery incompatibility
+
+Exact error code/UIは詳細設計で決定します。
+
+## 19. Component reachability
+
+Admin Viewとのexternal management boundaryはGatewayが所有します。
+
+ただしCore以外のcomponentへのすべてのmanagement requestをGatewayがproxyするか、component-specific management protocolを別途設けるかは未確定です。
+
+どの方式でもcomponent code independenceとprotocol-only communicationを維持します。
+
+## 20. 詳細設計へ残す事項
+
+- Admin auth/token/session technology
+- exact permission matrix
+- metrics/log schema and collector
+- Config management message schema
+- operational command list
+- high-impact confirmation flow
+- audit storage/retention
+- component management reachability architecture
+- addon install/update UIをstandardに含めるかの最終決定
+- addon package/signature/hash詳細
+- official store metadata/distribution
+- third-party trust/security mechanism
+- protocol/Capability error UI

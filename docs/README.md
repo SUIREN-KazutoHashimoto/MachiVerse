@@ -2,108 +2,213 @@
 
 ## このドキュメント群の目的
 
-この `docs` ディレクトリは、MachiVerse の実装経験がない技術者でも、システム全体の構成、各領域の責務、主要な機能、依存関係、データの流れ、設計上の制約を理解できる状態を維持するための設計資料です。
+`docs` は、MachiVerseの確定要件、最上位architecture、世界simulation各領域、component責務、protocol contract、運用上の制約を追跡できるようにするための設計資料です。
 
-MachiVerse は C# で開発する超大規模エージェントベースの世界シミュレーターです。超大規模化に伴う複雑性を制御するため、システムを責務単位で明確に分離し、各領域が担当する機能と担当しない機能を設計段階から明文化します。
+MachiVerseはC#で開発する大規模なagent-based world simulatorです。世界を単なる都市や背景として扱わず、自然、住人、組織、経済、政治、技術、建造環境、情報、歴史等が因果的に相互作用する世界としてsimulationします。
+
+## ドキュメントの優先関係
+
+### 要件定義の正本
+
+対話ベースの要件定義で確定したQ001〜Q279は、`requirements` 配下に決定記録として保存します。
+
+- [要件定義の読み方](requirements/README.md)
+- [Q001〜Q099](requirements/requirements-qa-001-099.md)
+- [Q100〜Q199](requirements/requirements-qa-100-199.md)
+- [Q200〜Q279](requirements/requirements-qa-200-279.md)
+
+後続の質問で以前の決定を明示的に変更・補足した場合は後続要件を優先します。
+
+### Architecture / Protocol
+
+`architecture` は要件をcomponent責務・world subsystem・横断意味論へ具体化します。
+
+`protocols` はcomponent間の具体的な通信契約の正本です。ただしprotocol設計も確定要件へ反してはなりません。
+
+横断的な矛盾・古い記述の解消方針は [アーキテクチャ整合性監査](architecture/consistency-audit.md) を参照してください。
 
 ## 現在の最上位構成
 
-MachiVerse は、現時点で以下の4領域を最上位の責務境界とします。
+MachiVerseの標準構成は次の4componentです。
 
-1. **シミュレーションコア**
-   - 世界シミュレーションそのものを実行する領域。
-   - シミュレーション状態、時間進行、エージェントおよび環境の状態遷移、マスターゲートウェイ選出などを担当する。
-2. **ゲートウェイ**
-   - シミュレーションコアと外部利用者・外部画面との接続境界。
-   - 状態キャッシュ、遅延吸収、利用者認証・認可、操作集約・競合調停を担当し、複数台へスケール可能とする。
-   - 複数ゲートウェイ構成では、コアが1台をランダムにマスターゲートウェイとして選出し、一般ビュー由来のコア向け操作はマスターへ集約する。
-3. **ビュー**
-   - 一般利用者がロールに応じてシミュレーションを参照・参加・操作するための領域。
-4. **管理ビュー**
-   - システム運用者・管理者が各コンポーネントのログ、ステータス、Config、運用コマンド等を監視・管理するための領域。
+1. **Simulation Core**
+   - Authoritative World State、整数Simulation Step、world rule、deterministic update、save/replay/recoveryを担当する。
+   - 標準構成では1つだけ存在する。
+2. **Gateway**
+   - Coreと外部Viewの接続境界。
+   - authn/authz、cache、logical publication buffer、Operation aggregation、Master Gateway、retry/dedup、resyncを担当する。
+   - Coreに対して1:Nで水平scale可能。
+3. **General View**
+   - 一般利用者がroleに応じてworldを参照・参加・操作するWeb UI。
+   - Three.jsを用いてCoreのfull-3D worldを表示する。
+4. **Admin View**
+   - system operator向けの別UI。
+   - component log/status/metrics、Config、operational command、Admin Operation等を扱う。
 
-## シミュレーション対象
+General View上のAdministratorとAdmin Viewは別のauth/authz domainです。
 
-MachiVerse の具体的なシミュレーション対象は **世界** です。
+## Component分離原則
 
-ただし、世界を構成する具体的な対象（人口、経済、地理、国家等）は現時点では未確定です。詳細は [世界シミュレーション設計](architecture/world-simulation.md) を参照してください。
+4componentは論理layerだけでなくcode/build/deploy/runtime単位まで独立させます。
 
-## コンポーネント分離原則
+- component間でproject参照を持たない。
+- DLLやinternal typeを共有しない。
+- shared DTO libraryをcommunication contractとして使用しない。
+- component間のdirect method callを行わない。
+- component間communicationはprotocolだけを通じて行う。
+- 各componentを独立build・run可能にする。
 
-4コンポーネントは、単なる論理層ではなく、コード・ビルド・配布・実行の単位まで分離します。
+## 標準構成のCore / Gateway
 
-- コンポーネント間でプロジェクト参照を持たない。
-- コンポーネント間で DLL や内部型を共有しない。
-- 共通 DTO ライブラリを通信契約として使用しない。
-- 各コンポーネントは独立した実行単位とする。
-- コンポーネント間のやり取りは、プロトコルを通じてのみ行う。
-- プロトコル設計書をコンポーネント間契約の基準とする。
-- シミュレーションコアとゲートウェイ等を同時並行で実装しても、通常の機能開発で同一ソースファイルを編集する必要がない構造とする。
+- Standard Simulation Coreは1つ。
+- Core : Gateway = 1:N。
+- 複数Gateway時はCoreがsafe candidateからMaster Gatewayをrandom選出する。
+- General View由来Operationはlocal Gatewayでauthn/authz・aggregation・local conflict mediationを行い、Masterへ集約する。
+- Masterは全Gateway分をdeterministic mergeし、final batchをCoreへ送る。
+- Coreがauthoritative world stateとworld-state invariantに基づいて最終状態遷移を行う。
+- stable Operation ID、Batch ID、Master generation、retry/dedup/idempotencyによりfailover・reconnectでduplicate applyを防ぐ。
+- Master identityそのもののreplay再現性は標準要件ではないが、Master identityがworld outcomeを変えてはならない。
+
+## Authoritative World Time
+
+権威あるWorld Timeは整数ベースのSimulation Stepです。
+
+- standard frequencyは30Hz。
+- 外部Configから変更可能。
+- Coreが30Hzへ追いつかなくてもprocessing delayだけを理由にStepをskipしない。
+- network arrival timeをそのままOperation application timeにしない。
+- Gateway/Masterがcandidate application timeを形成し、Coreがfinal valid Stepを決定する。
+
+## Full 3D World
+
+MachiVerseの3DはViewだけの要件ではありません。Simulation Coreのauthoritative spatial model自体をfull 3Dとします。
+
+- cave
+- tunnel
+- basement
+- mine working
+- overhang
+- cut
+- same XYに異なるZで存在する複数surface/space
+
+等を表現できる必要があります。
+
+単一XYにつき単一Zしか持てないpure single-height mapをauthoritative terrainとしません。
+
+Three.jsはGeneral Viewのrendering技術であり、Core world modelを置き換えるものではありません。
+
+## World simulation対象
+
+世界を構成する対象は、現在では未確定ではありません。Q001〜Q199を中心に多数の標準simulation領域が確定しています。
+
+例として、次を相互に独立した背景値ではなく因果的に接続します。
+
+- terrain、climate、weather、water、ocean、geology、ecosystem
+- resident lifecycle、health、knowledge、skill、memory、emotion、goal、daily activity
+- family、relationship、organization、education、work
+- agriculture、resource、energy、manufacturing、logistics
+- market、currency、credit、tax、public finance、enterprise、household
+- law、crime、justice、administration、politics、diplomacy、military
+- building、interior、construction、infrastructure、transport
+- information、media、communication、maps、public records
+- accident、disaster、emergency response、pollution、maintenance
+- history、culture、language、religion、arts、social events
+
+個別の詳細は `architecture` 配下の各domain設計書を参照してください。
+
+## World-scale detail
+
+- defaultでは世界規模で可能な限り個体・物品・建物等の存在、persistent ID、重要stateを保持する方向とする。
+- 全世界を一律30Hzでhigh-detail updateすることは要求しない。
+- remote / low-importance対象ではupdate frequency・detailを下げられる。
+- Entity identityと重要因果を失わずdetail promotion/demotion、aggregation、archiveを行う。
+
+## Determinism
+
+同じWorld Seed、simulation-affecting Config、accepted Operation集合・順序・application Stepからは同じlogical world outcomeを得ます。
+
+world outcomeをprocessing speed、OS scheduling、thread completion order、Gateway count、Master identity、network race等へ依存させません。
+
+Coreは最大16 thread、実使用1〜16をConfigで設定可能です。thread countが変わっても同じ再現条件ならworld outcomeを変えません。
+
+異なるCPU/OS/runtime間のすべてのfloating-point operationをbit-identicalにすることは標準要件ではありません。
 
 ## 外部Config原則
 
-運用・性能・シミュレーション挙動を調整する各種数値は、ソースコードへ固定値として埋め込まず、各コンポーネントが所有する外部Configから変更可能にします。
+- 調整可能な数値・threshold・frequency・timeout・capacity等は外部Config化する。
+- 各componentが自身のConfig fileを所有する。
+- component間でConfig fileを共有・直接参照しない。
+- 他componentへ必要な設定・状態はCoreに近い責任componentがprotocolで配布する。
+- startup Configに不整合があれば起動しない。
+- simulation-affecting runtime changeはsafe Simulation Stepでatomicに適用しhistoryへ記録する。
+- old Configでnew fieldが欠ける場合はdefaultを適用し、そのfieldをConfig fileへ追加する。
 
-30Hz のシミュレーション計算頻度や、ゲートウェイの1秒遅延バッファも基準値として設計書に記載しますが、実行時には外部Configから供給する値として扱います。
+詳細は [外部Config設計](architecture/configuration.md) と [Config意味論](architecture/config-semantics.md) を参照してください。
 
-Configはコンポーネント間で共有せず、各コンポーネントが自身の設定を所有します。詳細は [外部Config設計](architecture/configuration.md) を参照してください。
+## Addon原則
 
-## マスターゲートウェイ原則
+Addonはcomponent単位で設定できます。
 
-複数ゲートウェイ構成では、シミュレーションコアが有効なゲートウェイから1台をランダムにマスターゲートウェイとして選出します。
+標準protocolへaddon固有function payload、addon command、generic extension data areaを載せません。
 
-各ゲートウェイは一般ビュー由来操作をローカルで認証・認可・集約・競合整理し、ローカル操作バッチを形成します。非マスターゲートウェイはそのバッチをマスターへ送信し、マスターは全ゲートウェイ分を集約してゲートウェイ間競合を整理した後、コアへ最終操作バッチとして一括送信します。
+一方、addon install状況、identity、version、required/provided Capability等、connection safety/compatibility判定に必要なmeta informationは標準protocolで交換できます。
 
-マスターが利用不能になった場合はコアが再選出します。重複・欠落を防ぐため、マスター選出世代、バッチ識別、冪等性、再送の契約をプロトコルで定義します。
+Addon固有のcross-component data communicationが必要な場合は、protocol extension framework addon等とadditional protocolを別途成立させる方向です。具体APIは未確定です。
 
-## ドキュメント一覧
+Addon構成に不整合があれば重大度に関係なく対象componentを起動しません。saved worldが依存するaddon不整合もexplicit migrationが完全成功しない限り起動拒否します。
 
-### アーキテクチャ
+## Diver
 
-- [全体アーキテクチャ](architecture/overview.md)
-- [世界シミュレーション設計](architecture/world-simulation.md)
-- [シミュレーションコア](architecture/simulation-core.md)
-- [シミュレーションコア並行実行設計](architecture/core-concurrency.md)
-- [ゲートウェイ](architecture/gateway.md)
-- [ビュー](architecture/view.md)
-- [管理ビュー](architecture/admin-view.md)
-- [外部Config設計](architecture/configuration.md)
+Diverは参加時にnew residentを生成しません。
 
-### プロトコル
+- existing normal residentへbindする。
+- broad preferenceはrequestできるがmatchingを保証しない。
+- 原則1residentにつき1Diver。
+- disconnectを理由に別Diverへcontrolを移さない。
+- reconnectしても同じDiver identityを使う。
+- disconnected residentはworld内で存在・行動を続け、Diverはabsent behavior priorityを事前設定可能。
 
-- [プロトコル設計方針](protocols/README.md)
-- [シミュレーションコア・ゲートウェイ間プロトコル](protocols/core-gateway.md)
-- [ゲートウェイ間プロトコル](protocols/gateway-gateway.md)
-- [ゲートウェイ・一般ビュー間プロトコル](protocols/gateway-view.md)
-- [ゲートウェイ・管理ビュー間プロトコル](protocols/gateway-admin-view.md)
+## Save / Replay / Recovery
 
-## プロトコル所有責任
+- defaultはSnapshot＋Operation/Event history＋high-precision replay方向。
+- replayはvideoではなくCoreによるdeterministic recalculation。
+- saveはspecific Simulation Stepのconsistent stateとして取得する。
+- live saveが高負荷・困難ならsafe boundaryで一時停止してよい。
+- corrupt/incompatible saveをpartial loadしてworldを起動しない。
+- deterministic migration不能ならold format worldは起動拒否する。
+- restore後もsame world identity、Entity ID、Simulation Step、Operation historyを維持する。
 
-| 境界 | プロトコル所有者 |
-|---|---|
-| シミュレーションコア ↔ ゲートウェイ | シミュレーションコア |
-| ゲートウェイ ↔ ゲートウェイ | ゲートウェイ |
-| ゲートウェイ ↔ 一般ビュー | ゲートウェイ |
-| ゲートウェイ ↔ 管理ビュー | ゲートウェイ |
+## 主なドキュメント入口
 
-## 設計ドキュメントの読み方
+### Requirements
 
-各設計書では、可能な限り目的、責務、責務外、入力、出力、データ所有権、依存関係、主要機能、障害時・高負荷時の境界、確定事項、未確定事項を明示します。
+- [要件定義](requirements/README.md)
 
-プロトコル設計書では、さらに通信目的、メッセージ種別、フィールド定義、成功・失敗、順序性、冪等性、再送、バージョニング、互換性などを定義します。
+### Cross-cutting architecture
 
-## 設計上の基本原則
+- [全体architecture](architecture/overview.md)
+- [整合性監査](architecture/consistency-audit.md)
+- [Simulation Core](architecture/simulation-core.md)
+- [Gateway](architecture/gateway.md)
+- [General View](architecture/view.md)
+- [Admin View](architecture/admin-view.md)
+- [External Config](architecture/configuration.md)
+- [Deterministic update](architecture/deterministic-update-execution.md)
+- [Random / ID / numerics](architecture/deterministic-random-id-numerics.md)
+- [Protocol compatibility / Capability](architecture/protocol-compatibility-capability.md)
+- [Addon boundary](architecture/addon-boundary-safety.md)
+- [Persistence / replay](architecture/persistence-replay-recovery.md)
 
-- 各領域は、自身の責務を越えて他領域の内部実装を直接操作しない。
-- コンポーネント間にコード依存を作らない。
-- データの所有者と更新責任を明確にする。
-- 表示都合、通信都合、運用都合をシミュレーションロジックへ混入させない。
-- 超大規模化に必要な並列化・分散化・スケールアウトを妨げる密結合を避ける。
-- 調整可能な数値は外部Configから供給する。
-- 未確定の技術選定や機能要件は、確定事項として記述しない。
+### Protocols
+
+- [Protocol common policy](protocols/README.md)
+- [Core ↔ Gateway](protocols/core-gateway.md)
+- [Gateway ↔ Gateway](protocols/gateway-gateway.md)
+- [Gateway ↔ General View](protocols/gateway-view.md)
+- [Gateway ↔ Admin View](protocols/gateway-admin-view.md)
 
 ## 更新方針
 
-システム構成、責務、機能、通信境界、運用方式などの設計が決定または変更された場合は、実装だけを変更するのではなく、対応する設計書も同時に更新します。
+Architecture、responsibility、protocol semantics、world rule、Config semantics等の確定要件を変更する場合、implementationだけを変更せず関連documentも同時に更新します。
 
-コンポーネント間の通信仕様を変更する場合は、共有コードを先に変更するのではなく、対象プロトコル設計書を契約変更の起点とします。
+新しい決定が過去の記述を置き換える場合は、`docs/requirements` に決定を残し、横断documentと関係する個別documentから古い矛盾記述を除去します。

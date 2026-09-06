@@ -1,201 +1,295 @@
-# シミュレーションコア設計
+# Simulation Core設計
 
 ## 1. 目的
 
-シミュレーションコアは、MachiVerse における世界シミュレーションそのものの実行責任を持つ領域です。
+Simulation CoreはMachiVerseにおける権威あるWorld State、Simulation Step、world rule、決定論的更新、保存・復旧を所有する。
 
-UI、外部クライアント数、画面更新頻度、認証方式などの外部事情から隔離し、30Hzを基準とするシミュレーション計算へ専念します。
+標準構成ではCoreは1つだけ存在する。General View / Admin Viewとは直接通信せず、Gatewayを通じて外部Operationを受け付ける。
 
 ## 2. 主な責務
 
-- シミュレーション状態の正本保持
-- 30Hzを基準としたシミュレーション計算
-- マルチスレッド実行
-- シミュレーション時間の進行
-- エージェント・環境状態の保持と更新
-- シミュレーションルールの適用
-- 状態遷移・内部イベント処理
-- ゲートウェイから受け付けた一般ビュー由来最終操作バッチの妥当性判定・反映
-- ゲートウェイから受け付けた管理ビュー由来運用操作の反映
-- 決定論的な乱数・ノイズの提供
-- 外部参照用状態の提供
-- シミュレーションコア・ゲートウェイ間プロトコルの所有
+- Authoritative World Stateの保持
+- 整数ベースのSimulation Step進行
+- 標準30Hzを基準とする固定Step計算
+- 1〜16 threadを用いた決定論的parallel update
+- resident、environment、organization、economy等のworld subsystem更新
+- world-state invariantとsimulation ruleの維持
+- deterministic random contextの提供
+- persistent Entity IDの一貫性維持
+- General View由来final batchの世界状態・simulation rule上の最終可否判定と適用
+- Gatewayから受けたAdmin Operationのうち、一般的world-state invariantに照らした状態遷移確認と適用
+- external Operationの最終有効application Stepの確定
+- Gatewayへ外部公開可能なauthoritative-derived stateを提供
+- Master Gatewayの選出・generation管理
+- save / replay / recoveryのworld側意味論
+- `docs/protocols/core-gateway.md` の所有
 
-## 3. 実行条件
+## 3. 権威ある時間
 
-### 3.1 計算頻度
+### 3.1 Simulation Step
 
-計算頻度の基準値は30Hzです。基準上は1計算ステップあたり約33.33msです。
+- 権威あるWorld Timeは整数ベースのSimulation Stepとする。
+- 標準進行頻度は30Hz。
+- 30Hzは外部Configから変更可能であり、source codeへ運用固定値として埋め込まない。
+- 秒、日時、社会的暦等は必要に応じSimulation Stepから変換する。
+- residentの時刻認識、社会的calendar、View表示時刻はauthoritative Stepと分離する。
 
-30Hzは外部Configから変更可能とし、コードへ固定しません。
+Simulation Stepのinteger type、epoch、overflow方針、date/time変換精度は詳細設計で決定する。
 
-### 3.2 マルチスレッド
+### 3.2 Overrun
 
-シミュレーションコアはマルチスレッド実行を前提とします。
+- Core計算が標準30Hzへ追いつかなくても、処理遅延だけを理由にworld Stepをskipしない。
+- real-timeへの追従は目標であり、determinismと因果的連続性を優先する。
+- 遅延時のdetail reduction、load policy、warning等の調整可能値はConfig化する。
 
-- 最大16スレッドまで利用可能とする。
-- 実際に使用するスレッド数はコアの外部Configから変更可能とする。
-- 1〜16の範囲で扱う。
-- スレッド実行順や処理速度差によってシミュレーション結果を変化させない。
+### 3.3 Pause / speed change
 
-具体的な処理分割、同期方式、ロック戦略、スケジューリング方式は別途設計します。
+- Pause、slow/fast、time multiplier等をConfig/Admin操作で可能にする。
+- Pause中はSimulation Stepを進めない。
+- Pause中にexternal Operationを受信・認証・queue保持することは可能とする。
+- simulation-affecting OperationはPause中の停止Stepへ曖昧に適用せず、resume後の明示的な有効Stepへ決定論的に割り当てる。
+- simulation-non-affecting operational actionは別扱い可能とする。
 
-## 4. 決定論的再現性
+## 4. Parallel execution
 
-MachiVerse のシミュレーションコアは、完全な決定論的再現性を必須要件とします。
+Coreはmultithread executionを前提とする。
 
-次の条件が同一である場合、必ず同一のシミュレーション結果を得なければなりません。
+- 有効thread数は1〜16。
+- 実使用thread数はCore Configから変更可能。
+- thread数、thread completion order、OS scheduling、task schedulingによってworld outcomeを変えない。
 
-1. ワールドSeedが同一であること。
-2. 世界状態へ影響する設定が同一であること。
-3. シミュレーションへ適用される操作内容・適用順序・適用時点が同一であること。
+概念的なupdate modelは次とする。
 
-実行マシンの処理速度、OSスケジューリング、スレッド実行順、タスク完了順等の非決定的な実行要因を、世界状態の結果へ反映させません。
+```text
+World State(T)
+  ↓
+parallel read / calculation
+  ↓
+deterministic merge / reduction / conflict resolution
+  ↓
+authoritative apply
+  ↓
+World State(T+1)
+```
 
-並列競合、更新順序、リダクション、同一時点の複数操作等、順序によって結果が変わり得る処理には決定的な結果確定規則を設けます。
+具体的なtask graph、lock、partitioning、work stealing等の実装方式は現時点では固定しない。
 
-## 5. 乱数・ノイズ
+## 5. Determinism
 
-シミュレーション内のランダム要素は、ワールドSeedとワールド時間を基礎入力とする決定的ノイズから導出します。
+同一の次条件からは同一の論理的world outcomeを得る。
 
-同一ワールドSeed・同一ワールド時間・同一抽選対象に対する乱数抽選は、実行のたびに同一結果でなければなりません。
+1. World Seed
+2. simulation-affecting Configとその変更履歴
+3. accepted external/admin Operation集合
+4. Operationのdeterministic order
+5. Operationのapplication Simulation Step
+6. 同じ内部因果状態
 
-共有PRNGの内部状態をスレッド間で順番に消費し、乱数関数の呼び出し順によって結果が変わる方式を、シミュレーション結果決定の基準として使用しません。
+世界結果を次へ依存させない。
 
-同一ワールド時間に複数の乱数抽選が必要になる場合は、抽選対象・用途・エージェント・イベント等を決定的に識別する追加入力を用います。
+- CPU処理速度
+- OS scheduler
+- thread ID / thread completion order
+- wall clock
+- Gateway数
+- Master個体
+- network arrival race
+- retry回数
 
-具体的なノイズ関数、ハッシュ方式、Seed表現、ワールド時間表現、乱数分布変換方式、追加識別入力の構成は今後詳細化します。
+異なるCPU、OS、runtimeを跨ぐ全floating-point operationのbit完全一致は標準要件とはしない。ただし、制御可能なordering、random、ID、reduction、conflictの非決定性は排除する。
 
-OS時刻、実時間、スレッドID、呼び出し回数、処理完了順等の非決定的値を、世界状態へ影響する乱数入力として暗黙に使用してはなりません。
+## 6. Random
 
-## 6. ゲートウェイとの関係
+- World SeedとWorld Time / Simulation Stepを乱数生成のbase inputとする。
+- target、purpose、event、Entity等のdeterministic logical contextを追加する。
+- shared stateful PRNGをthread/call orderで消費し、その順序にworld outcomeを依存させない。
+- OS時刻、thread ID、task completion order、非決定論的call countをentropyとして使わない。
 
-シミュレーションコアとゲートウェイは1対多です。
+具体的なRNG/hash algorithmは詳細設計で決定する。
 
-コアは一般ビュー・管理ビューと直接通信しません。外部からコアへ到達する操作は必ずゲートウェイを経由し、コア・ゲートウェイ間プロトコルに従います。
+## 7. Persistent Entity ID
 
-一般ビュー由来の干渉要求は、各ゲートウェイで認証・認可・ローカル集約・ローカル競合調停を行い、マスターゲートウェイで全ゲートウェイ分を集約・競合調停した後、最終操作バッチとしてコアへ到達します。
+- Entityはsave/restart/replayを跨いで同一Entityを識別できるpersistent IDを持つ。
+- ID assignmentをmemory address、thread順、task完了順、非決定論的creation orderへ依存させない。
+- 未来に生まれるすべてのIDをworld generation時に事前列挙する必要はない。
+- birth/creation eventのdeterministic logical contextからIDを生成可能にし、同一再現条件では同じEntityに同じIDを割り当てる。
 
-マスターゲートウェイはコアが有効なゲートウェイ群からランダムに選出します。
+ID formatとgeneration algorithmは詳細設計で決定する。
 
-## 7. 一般ビュー由来の最終操作バッチ
+## 8. Gatewayとの関係
 
-コアは一般ビューのUIや利用者ロールそのものへ直接依存しません。また、一般ビューから発生した個々の操作要求や、非マスターゲートウェイのローカルバッチを直接処理することを前提としません。
+Core : Gatewayは1:N。
 
-コアは現在のマスターゲートウェイから、ゲートウェイ間競合まで整理された最終操作バッチを受け取ります。
+- CoreはGeneral View / Admin Viewへdirect connectionしない。
+- Gateway cacheはauthoritative stateではない。
+- CoreはGatewayがcache/publication bufferを構築できるauthoritative-derived stateをprotocol経由で提供する。
+- Core内部のmutable data structureを外部へ直接公開しない。
 
-コアは各操作について現在の世界状態・シミュレーションルール上の妥当性を最終判断します。
+Core→GatewayのPush/Pull、full/delta、snapshot等の具体state delivery方式は未確定。
 
-マスターゲートウェイで競合整理済みであっても、例えば対象が既に存在しない、現在状態では実行できない、シミュレーションルールに反する等の場合はコアが拒否できます。
+## 9. General View由来final batch
 
-## 8. 操作バッチ適用と決定論
+General View OperationはGateway側でauthn/authz、local aggregation、local conflict mediationを受け、Master Gatewayでdeterministic merge/cross-Gateway mediationされたfinal batchとしてCoreへ到達する。
 
-コアは正本状態に対する整合性と決定論の責任を保持します。
+CoreはUI role名やnon-Master Gatewayのindividual requestを直接解釈しない。
 
-同一の最終操作バッチが同一ワールド時間へ適用される場合、常に同じ適用結果にならなければなりません。
+Coreはfinal batch内Operationについて、少なくとも次をauthoritative world stateに照らして判定する。
 
-したがって、コアは操作バッチ受理時に少なくとも以下を判断・確定します。
+- target Entity/stateが存在・有効か
+- 現在world stateから状態遷移可能か
+- simulation rule/world invariantに反しないか
+- deterministic apply order
+- same-target conflictの最終state transition
 
-- バッチ内各操作の対象が現在存在・有効か
-- 現在の世界状態に対して操作可能か
-- シミュレーションルール上許容されるか
-- バッチ内操作の決定的な適用順序
-- 同一対象への複数操作が残っている場合の決定的な扱い
-- 適用結果を正本状態へ反映できるか
+Gateway/Masterでexternal-request conflictが整理済みでも、authoritative world state上成立しないOperationをCoreは拒否できる。
 
-バッチ全体を原子的に扱うか、操作単位で部分成功を許可するかは未確定ですが、どちらを採用しても同一入力から同一結果になる必要があります。
+## 10. Admin Operationの責務境界
 
-## 9. マスターゲートウェイとの関係
+Admin View→Gateway→Coreの経路を使用する。
 
-複数ゲートウェイ構成では、一般ビュー由来の書き込み経路をマスターゲートウェイへ集約します。
+Q235/Q275に従い責務を分ける。
 
-- コアがマスターゲートウェイを選出・再選出する。
-- 非マスターゲートウェイは一般ビュー由来ローカルバッチをコアへ直接送信しない。
-- マスターゲートウェイがゲートウェイ間競合を調停し、最終操作バッチを形成する。
-- コアは現在のマスターから最終操作バッチを受理する。
-- マスター切替による再送・重複が世界結果を変化させないよう、冪等性・重複排除をプロトコル設計で定義する。
+### Gatewayの責務
 
-マスターゲートウェイのランダム選出そのものは、世界シミュレーションの乱数ではなく運用上の選出です。どのゲートウェイがマスターになったかによって、同一Seed・同一設定・同一操作の世界結果が変化してはなりません。
+- Admin authentication / authorization
+- Admin operation format
+- targetとscope
+- Admin操作としてのallowed condition
+- protocol-level validity
 
-## 10. 管理ビュー由来の運用操作
+### Coreの責務
 
-管理ビューからシミュレーションへ行う運用上の干渉も、ゲートウェイを経由してコアへ到達します。
+- UI上のAdmin roleを解釈しない。
+- Adminだからという理由で特別なauthorizationを再判定しない。
+- すべてのOperation共通のworld-state invariant、reference consistency、状態遷移として成立するかを維持する。
 
-一般ビュー由来の最終操作バッチとは意味・権限体系を分離します。
+つまり、GatewayがAdmin操作として許可したOperationでも、一般的world-state invariantを破壊するならCoreが状態遷移を拒否できる。拒否理由はAdmin権限ではなくworld/state-transition上の理由である。
 
-世界状態へ影響する管理操作も再現性条件に含める必要があり、同一操作内容・適用順序・適用時点なら同一結果にならなければなりません。
+## 11. External Operationのapplication Step
 
-コア内部状態を外部から直接変更させず、定義済みプロトコル上の操作として受理し、最終的な状態変更はコア自身が行います。
+Q203/Q223/Q224/Q276を次のように統一する。
 
-## 11. 外部参照用状態
+- physical network arrival timeをそのままapplication timeにしない。
+- Gateway/Masterはprotocol規則に従いcandidate application time/Stepに必要な情報を形成する。
+- Coreはcurrent Simulation Step、deadline、Master generation、deterministic ordering rules等に基づき最終有効application Stepを確定する。
+- late Operationでpast finalized Stepをretroactiveにrewriteしない。
+- late Operationはprotocol ruleに従いfuture valid Stepへdeferまたはrejectする。
+- same effective Operation set / same logical conditionsならnetwork timingだけで結果を変えない。
 
-ゲートウェイがキャッシュと遅延バッファを構築できるよう、外部公開可能な状態をプロトコル経由で提供します。
+candidate field、deadline表現、tie-break key等はprotocol詳細設計で決定する。
 
-- コア内部の可変データ構造を直接公開しない。
-- 外部参照頻度をコアの計算頻度へ密結合させない。
-- 外部クライアント数に応じてコア負荷が線形増加しない構造とする。
-- ゲートウェイが時系列を判別できる情報を提供可能にする。
+## 12. Master Gateway
 
-ゲートウェイ側の約1秒遅延バッファはコアの責務ではありません。
+- Master GatewayはCoreが選出する。
+- candidateはconnectedだけでなくresponsive、protocol-compatible、required Capability、sync state等の安全条件を満たす必要がある。
+- selectionはrandomとする。
+- Master selection結果自体のdeterministic replayは標準要件としない。
+- selection resultとgenerationをdiagnostic可能にする。
+- Master identityがworld outcomeへ影響してはならない。
+- Coreはcurrent Master generationをauthoritativeに管理し、stale old-generation outputを拒否する。
+- failure時はsafe candidateから再選出する。
 
-## 12. データ所有権
+具体的なoperational random source、health threshold、selection algorithmは未確定。
 
-シミュレーション状態の正本はシミュレーションコアが所有します。
+## 13. Operation idempotency
 
-ゲートウェイのキャッシュ、一般ビュー・管理ビュー上の表示データは正本ではありません。
+Core/Gateway protocolは、retry・failover・reconnectによって同一Operationが二重適用されない意味論を持つ。
 
-## 13. コード・実行単位の分離
+- stable Operation IDを維持する。
+- Batch ID / Master generation等からduplicate/stale contextを識別可能にする。
+- ACK lossやretry countがworld outcomeを変えない。
 
-シミュレーションコアは他コンポーネントとコードを共有しません。
+具体的dedup retention/data structureは詳細設計で決定する。
 
-- 他コンポーネントへのプロジェクト参照を持たない。
-- 他コンポーネントDLLを参照しない。
-- 共通DTOライブラリを通信契約として共有しない。
-- 他コンポーネント内部型を参照しない。
-- コンポーネント間の直接メソッド呼び出しを行わない。
+## 14. Gatewayが0台の場合
 
-コアは独立した実行単位として、ゲートウェイが未完成でも単体でビルド・テスト可能とします。
+接続Gatewayが0台になっても、それ自体を理由にSimulation Stepを停止しない。
 
-## 14. プロトコル所有責任
+- internal eventは通常規則で進行する。
+- 既にCoreが受理済みのOperationは決定済みのapply ruleに従って処理する。
+- 新規external OperationはGatewayがないため入らない。
+- Gateway復旧後にgateway-absent期間へworldを巻き戻さない。
 
-シミュレーションコアは `docs/protocols/core-gateway.md` の所有者です。
+## 15. World-scale detail
 
-外部公開状態、一般ビュー由来の最終操作バッチ、管理ビュー由来運用操作、通信上の意味、互換性、変更方針をこの設計書で定義します。
+Coreのauthoritative world modelはfull 3Dであり、世界規模のdetail levelを決定論的に制御する。
 
-## 15. 禁止事項
+- defaultでは可能な限りworld-wideにEntityの存在、persistent ID、重要stateを保持する。
+- all-world 30Hz detail updateは要求しない。
+- remote / low-importance regionはupdate frequency/detailを下げられる。
+- detail promotion/demotion、aggregation、archive、boundary causalityでEntity identityと重要因果を壊さない。
 
-- 一般ビュー・管理ビューへの直接依存
-- ゲートウェイ実装コードへの依存
-- UIフレームワークへの依存
-- 一般ビュー由来の個々の操作要求を直接受け取ることを前提とする構成
-- 非マスターゲートウェイから一般ビュー由来バッチを直接受理すること
-- 外部層からコア内部の可変状態を直接変更させること
-- ゲートウェイでの認可・競合調停結果だけを理由に、シミュレーション上不正な操作を無条件に受理すること
-- スレッド実行順・実時間・処理速度によって同一入力の世界結果を変化させること
-- 呼び出し順依存の共有乱数状態で世界結果を決定すること
-- 個々のビュー参照要求へコアが直接応答する構成
-- プロトコル設計書に存在しない暗黙仕様への依存
+## 16. Save / replay / recovery
 
-## 16. 今後決定が必要な事項
+- defaultはSnapshot＋Operation/Event history＋high-precision replay方向。
+- replayはrecorded videoではなくCoreによるdeterministic recalculation。
+- saveはspecific Simulation Stepに対応したlogically consistent stateを取得する。
+- running saveを許容するが、安全なconsistent saveが高負荷・困難な場合はsafe boundaryで一時停止してよい。
+- pause/no-pauseの選択でworld outcomeを変えない。
+- crash recoveryでaccepted important Operationをloss/duplicateしない。
+- corrupt saveはpartial loadして起動しない。
+- old formatはexplicit deterministic migrationを経由し、変換不能なら起動拒否する。
+- restore後も同じworld identity、Entity ID、Simulation Step、applied Operation historyを維持する。
 
-- 30Hzの厳密な時間進行規則
-- 計算遅延時の追いつき・スキップ・蓄積方針
-- 世界を構成する具体的なモデル
-- エージェントモデル・環境モデル
-- 決定的な更新順序
-- 並列処理単位
-- 同期・ロック戦略
-- スナップショット方式
-- ワールドSeedの型・表現
-- ワールド時間の乱数入力表現
-- 決定的ノイズ関数・ハッシュ方式
-- 同一時刻に複数の乱数抽選を区別する識別方式
-- 一般ビュー由来の具体的なシミュレーション操作一覧
-- 操作バッチの適用単位
-- バッチ内順序規則
-- バッチの全件成功・部分成功方針
-- 管理ビュー由来の具体的な運用操作一覧
-- 外部参照用データの粒度
-- コアからゲートウェイへの状態配信方式
-- 実際の通信技術・シリアライズ形式
-- 再現性検証・回帰テスト方式
+storage/serialization形式は未確定。
+
+## 17. Config
+
+Core ConfigはCore自身が所有する。
+
+- 30Hz standard frequency
+- active thread count 1〜16
+- detail level関連threshold/frequency
+- world generation/simulation条件
+- save/replay関連の調整数値
+- lag/load policy
+
+等の調整可能値を外部Config化する。
+
+他componentはCore Config fileを直接読まない。境界を越えて必要な有効設定・意味はCore-owned protocolで配布する。
+
+startup Configに不整合があればCore/worldを起動しない。simulation-affecting runtime Config changeはexplicit safe Stepでatomicに適用し、historyへ記録する。
+
+## 18. Protocol ownership
+
+Coreは `docs/protocols/core-gateway.md` のownerである。
+
+そのprotocolは少なくとも次の意味を契約化する必要がある。
+
+- state publication/synchronization basis
+- Operation / Batch identity
+- Master generation
+- candidate/final application Step semantics
+- retry / idempotency / stale generation behavior
+- protocol version / Capability
+- operational/admin Operation transport
+- reconnect/recovery semantics
+
+具体wire schemaはprotocol詳細設計で決定する。
+
+## 19. 禁止事項
+
+- General View / Admin Viewへのdirect dependency
+- Gateway implementation codeへのdependency
+- shared DTO libraryによるcomponent coupling
+- non-Master GatewayのGeneral View local batch direct accept
+- Gateway authorization結果だけを理由にworld-invalid state transitionを無条件適用すること
+- Admin UI roleをCore authorization logicへ持ち込むこと
+- thread completion order、wall clock、network raceをworld outcomeへ利用すること
+- overrun時にworld Stepをskipすること
+- Gateway不在だけを理由にworldを巻き戻すこと
+- single-Z-only terrainをauthoritative full-3D worldとして扱うこと
+
+## 20. 詳細設計へ残す事項
+
+- internal system/task dependency representation
+- deterministic merge/reduction algorithm
+- same-Step event ordering key
+- RNG/hash algorithm
+- persistent Entity ID format/generation algorithm
+- Simulation Step integer type/epoch
+- candidate application Step wire fields
+- Core→Gateway state delivery method
+- save storage/serialization/archive format
+- numeric determinism guarantee boundary by supported platform
+- multi-Core addonの具体仕様（標準外）
