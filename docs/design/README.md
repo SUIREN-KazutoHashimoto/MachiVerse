@@ -50,6 +50,17 @@ Phase 3はIssue #15で管理し、Phase 1/2の契約を前提としてSimulation
 
 Phase 3全体の作業分解と共通方針は `phase3-world-domain-design.md`、全domainが従うstate ownership・event/intent・detail transitionの共通契約は `phase3-domain-common-contract.md`、Phase 3のcompletion判定とPhase 4への引き渡しは `phase3-traceability-cross-cutting-review.md` を正本とする。
 
+## Phase 4: 実装直前設計
+
+Status: In Progress
+
+- `phase4-implementation-ready-design.md`
+- `phase4-core-data-structures.md`
+
+Phase 4はIssue #16で管理し、Phase 1〜3で確定した意味契約を、実装者が追加の仕様解釈をほぼ必要としないconcrete data structure / schema / Config / persistence / algorithm / budget / observability / test / work breakdownへ落とし込む。
+
+Phase 4全体の作業分解と設計優先順位は `phase4-implementation-ready-design.md` を正本とする。P4-01では `phase4-core-data-structures.md` に共通value type、state partition layout、candidate state、index contractを定義する。後続P4成果物は作業完了に合わせて本indexへ追加する。
+
 ## 読み方
 
 1. `docs/requirements` の確定要件を最上位入力とする。
