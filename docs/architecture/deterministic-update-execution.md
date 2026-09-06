@@ -2,57 +2,95 @@
 
 ## 確定方針
 
-第200〜204問はすべてCを採用する。
+第200〜204問はすべてCを採用する。後続のQ276〜Q278により、Operationの最終適用Step、World Timeの内部表現、Pause中Operationの意味を追加で確定する。
 
 ### World Timeと時間進行
 
-- Simulation Coreは固定World Timeステップを基礎として進行する。
-- 標準の計算基準は30Hzとする。ただし30Hzはネットワーク配信やView更新を毎ステップ保証する意味ではない。
-- 実時間は追従目標であり、世界法則の基準時刻としてOSの壁時計へ依存しない。
-- 時間倍率、一時停止、低速化、高速化を外部Configまたは正規の管理操作によって制御可能とする。
-- 調整可能な数値は外部Configへ置くというプロジェクト共通原則に従う。
+- Simulation Coreは固定World Time stepを基礎として進行する。
+- Q277により、**権威あるWorld Timeの内部表現は整数ベースのSimulation Stepとする。**
+- 標準の計算基準は30Hzとする。ただし30Hzはnetwork配信やView更新を毎Step保証する意味ではない。
+- 秒、日時等は必要に応じSimulation Stepから変換する。
+- 社会的calendar、residentのtime awareness、View表示時刻はCoreのauthoritative Simulation Stepと分離する。
+- 実時間は追従目標であり、世界法則の基準時刻としてOS wall clockへ依存しない。
+- time multiplier、Pause、slow/fastを外部Configまたは正規Admin Operationによって制御可能とする。
+- 調整可能な数値は外部Configへ置く。
 
-### 同一World Time内の処理
+Simulation Stepの具体的integer type、epoch、overflow方針、date/time変換精度は詳細設計へ持ち越す。
 
-- スレッドやタスクの完了順を世界状態の適用順序として使用しない。
-- 基本原則を `World State(T) -> 読み取り・並列計算 -> 決定論的統合 -> 適用 -> World State(T+1)` とする。
-- システム・操作間の依存と競合は決定論的に解決する。
-- 同一時刻の処理結果はOSスケジューリング、スレッド実行順、処理速度に依存してはならない。
-- この原則は具体的なスレッドAPI、ジョブシステム、ECS等を指定するものではない。
+### 同一Simulation Step内の処理
 
-### 同時イベント
+- thread/taskの完了順をWorld Stateのapply順序として使用しない。
+- 基本原則を `World State(T) -> read / parallel calculation -> deterministic merge -> apply -> World State(T+1)` とする。
+- system・Operation間のdependencyとconflictは決定論的に解決する。
+- 同一Stepの処理結果はOS scheduling、thread execution order、processing speedに依存してはならない。
+- この原則は具体的thread API、job system、ECS等を指定するものではない。
 
-- 同じWorld Timeのイベントをネットワーク到着順や並列処理完了順だけで並べない。
-- 必要な場合は決定論的な識別子、優先関係、対象コンテキスト等から安定した順序を決定する。具体的なキー構成は未決定とする。
-- 相互に独立して順序が世界結果へ影響しないイベントは並列実行可能とする。
-- 並列実行した場合も統合後の世界状態は同一入力に対して一致しなければならない。
+### 同時Event
 
-### 外部操作の適用時刻
+- 同じSimulation Stepのeventをnetwork arrival orderやparallel completion orderだけで並べない。
+- 必要な場合はdeterministic identifier、priority relation、target context等からstable orderを決定する。
+- 相互に独立し順序がworld outcomeへ影響しないeventはparallel execution可能とする。
+- parallel executionしてもmerge後のWorld Stateは同一入力に対して一致しなければならない。
 
-- Gatewayから到着した瞬間を世界状態への直接適用時刻としない。
-- Coreが受理した操作は、明示的なWorld Timeまたは適用ステップへ決定論的に割り当てる。
-- 同一の有効操作集合・順序・適用時刻であれば、Gateway数、Master Gatewayの個体、ネットワーク到着タイミングによって世界結果を変化させない。
-- Gateway側の競合調停とCoreによる最終的な世界法則・状態妥当性判定の責務を混同しない。
+具体的なsame-Step ordering keyは詳細設計で決定する。
+
+### External Operationの適用Step
+
+Q203とQ276を次のように統一する。
+
+- Gatewayへ到着したwall-clock instantをWorld Stateへの直接application timeとしない。
+- Gateway / Master Gatewayはprotocol ruleに従ってcandidate application time/Stepに必要な情報を形成する。
+- Coreはcurrent Simulation Step、reception deadline、Master generation、deterministic ordering rule等から**final valid application Step**を確定する。
+- same effective Operation set / same logical conditionsでは、Gateway数、Master個体、network arrival timing、thread raceによってworld outcomeを変化させない。
+- late Operationで過去のfinalized Stepを書き換えない。protocol ruleに従ってlater valid Stepへdeferまたはrejectする。
+- Gateway側external-request conflict mediationとCore側world-state/simulation-rule validityの責務を混同しない。
+
+candidate application informationの具体wire field、deadline representation、tie-breakerは詳細protocol設計で決定する。
+
+### Pause中のOperation
+
+Q278により次を確定する。
+
+- Pause中もexternal requestの受信、authn/authz、validation、queue保持は可能とする。
+- Pause中はauthoritative Simulation Stepを進めない。
+- simulation-affecting OperationをPause中の停止Stepへ曖昧にapplyしない。
+- simulation-affecting OperationはResume後の明示的なvalid Stepへ決定論的に割り当てる。
+- simulation-non-affecting operational actionはPause中でも別扱いで実行可能とする。
+- Pause duration、受信race、processing speedがworld outcomeの暗黙入力になってはならない。
+
+Queue capacity、expiry、Resume後の具体assignment rule等は詳細設計で決定する。
 
 ### 処理遅延
 
-- 30Hzの計算時間を超過したことだけを理由として、世界状態を飛ばすステップスキップを行わない。
-- 処理能力が不足した場合は決定論を優先し、必要に応じて実時間との遅れを許容する。
-- 許容遅延、低速化、負荷軽減、詳細度調整等の調整可能な挙動・閾値は外部Configで制御可能とする。
-- 負荷軽減や詳細度変更を行う場合も、同一の再現条件では同一結果となるよう決定論的でなければならない。
+- 30Hzの計算時間を超過したことだけを理由としてworld Step skipを行わない。
+- processing capacity不足時はdeterminismを優先し、必要に応じ実時間とのlagを許容する。
+- allowed lag、slowdown、load reduction、detail adjustment等の調整可能なbehavior/thresholdは外部Configで制御する。
+- load reductionやdetail changeを行う場合も、同一再現条件では同一結果となるよう決定論的でなければならない。
+
+## Gateway不在との関係
+
+Q268により、connected Gatewayが0台になったこと自体を理由にSimulation Stepを停止しない。
+
+- Core internal eventは継続する。
+- Coreが既にacceptedしたOperationは決定済みapplication ruleに従い処理する。
+- 新規external Operationだけが入らない。
+- Gateway recovery後にabsence期間へworldをrewindしない。
 
 ## 再現性との関係
 
-- World Seed、シミュレーション影響Config、同一操作集合・順序・適用時刻が同一なら結果を一致させる。
-- 保存・再開・リプレイ時も本設計の更新順序を維持する。
-- シミュレーション影響Configの変更は再現条件の変更として扱う。
+- World Seed、simulation-affecting Config、same Operation set/order/application Stepが同一ならworld outcomeを一致させる。
+- save/restart/replay時も本設計のStep semanticsとdeterministic orderingを維持する。
+- simulation-affecting Config changeはexplicit effective Stepと履歴を持つ。
+- Master selection結果そのものはoperational randomでよいが、Master identityがworld outcomeを変えてはならない。
 
 ## 今後決定が必要な事項
 
-- 固定World Timeステップの具体的表現
-- 時間倍率変更の適用境界
-- システム間の決定論的依存・適用順序の表現
-- 同時イベントの安定順序キー
-- 外部操作をWorld Time／ステップへ割り当てる具体的規則
-- 遅延検出・負荷軽減・詳細度調整のConfig項目
-- 一時停止中に受理した外部操作の扱い
+- Simulation Stepのinteger type、epoch、overflow policy
+- time multiplier changeの具体effective boundary
+- system間のdeterministic dependency / apply order representation
+- same-Step stable ordering key
+- Gateway/Master candidate application informationのwire representation
+- Core final application Step assignmentの具体algorithm
+- deadline / defer / rejectのprotocol詳細
+- lag detection / load reduction / detail adjustmentのConfig key
+- Pause queue capacity・expiry・Resume assignment詳細
