@@ -6,7 +6,7 @@ Parent: `phase4-implementation-ready-design.md`
 
 ## 1. 目的
 
-Phase 1〜4で実装契約を確定した後も残っていたruntime、language、Web application hosting、Three.js rendererの標準実装profileを固定し、「component実装開始時にmajor technologyを追加判断する」状態を解消する。
+Phase 1〜4で実装契約を確定した後も残っていたruntime、language、Web application hosting、Three.js rendererの標準実装profileを固定し、component実装開始時にmajor technologyを追加判断する状態を解消する。
 
 本書はprotocol/state/persistenceのsemantic contractをruntime/library implementationへ従属させない。compatible patch updateやpresentation-only library差分までworld schema versionへ結び付けない。
 
@@ -24,7 +24,7 @@ C# language version = C# 14
 選定理由:
 
 - MachiVerse repositoryのC#主体方針と整合する。
-- .NET 10はPhase4設計時点のactive LTSである。
+- .NET 10はPhase 4設計時点のactive LTSである。
 - C# 14は.NET 10でsupportされるcurrent language generation。
 - Coreで必要な`Int128`、Span/Memory、async networking、ASP.NET Core/gRPC、WebAssembly clientを同一platform familyで利用できる。
 
@@ -68,7 +68,7 @@ Standard General View:
 Application: standalone Blazor WebAssembly
 Language: C# 14 / Razor
 Target: net10.0 browser-wasm
-Rendering: Three.js through a thin ECMAScript module interop boundary
+Rendering: Three.js WebGPURenderer through a thin ECMAScript module interop boundary
 Protocol: binary WebSocket + Protocol Buffers
 ```
 
@@ -91,7 +91,7 @@ Admin ViewはThree.jsをrequireしない。
 
 General View AdministratorとAdmin View permission domainをclient framework都合で統合しない。
 
-## 7. Three.js boundary
+## 7. Three.js / WebGPU boundary
 
 General View full-3D presentation library:
 
@@ -99,32 +99,87 @@ General View full-3D presentation library:
 Three.js
 ```
 
-Standard renderer baseline:
+Standard renderer:
 
 ```text
-THREE.WebGLRenderer
-backend requirement = WebGL 2
+THREE.WebGPURenderer
+import profile = three/webgpu
+preferred backend = WebGPU
+automatic compatibility backend = WebGL 2
+forceWebGL = false in normal production profile
 ```
 
-`WebGPURenderer`はPhase4 initial standard rendererにしない。
+**Phase 4 standard implementationは`WebGPURenderer`を使用する。** `WebGLRenderer`をstandard rendererとして直接使用しない。
 
-理由:
+Three.js `WebGPURenderer`はWebGPU対応browser/deviceではWebGPU backendを使用し、WebGPU非対応時はrenderer自身がWebGL 2 backendへfallbackできる。このfallbackでもapplication側renderer abstractionは`WebGPURenderer`のままとする。
 
-- Three.js公式manualでWebGPURendererはnext-generation rendererだがexperimental stateとして扱われている。
-- WebGLRendererは引き続きmaintainedで、pure WebGL 2 applicationのrecommended choiceとされる。
-- Phase4 standard releaseではbrowser/device差によるrender implementation riskを減らし、authoritative world contractとpresentation rendererの移行を分離する。
+### 7.1 WebGPU-first設計理由
 
-将来WebGPURendererを利用する場合:
+- MachiVerseの大規模full-3D worldで将来的にGPU compute、modern render pipeline、MRT等を活用しやすい。
+- Three.jsの開発重点が`WebGPURenderer`、node material、TSLへ移っている。
+- WebGPU利用可否でrenderer implementationを二重管理せず、`WebGPURenderer`のbackend abstractionを利用できる。
+- authoritative simulationとpresentation rendererは分離済みであり、renderer maturityやbrowser差がworld stateへ影響しない。
+
+### 7.2 WebGL compatibility fallback
+
+WebGPU unavailable時は:
 
 ```text
-presentation capability = view.render.webgpu-experimental
+WebGPURenderer
+ -> automatic WebGL 2 backend
 ```
 
-としてoptional presentation profileに追加可能。world state/protocol meaningを変更しない。
+をstandard fallbackとする。
 
-## 8. Three.js interop rule
+`new THREE.WebGLRenderer(...)`へapplication-levelで別rendererを切り替えるfallbackを標準にはしない。
 
-Blazor側`SceneProjectionModel`からJavaScript moduleへ渡すのはpresentation DTOのみ。
+release testではWebGPU backendと`forceWebGL=true`によるWebGL 2 backendの両方を検証する。
+
+## 8. Material / shader policy
+
+`WebGPURenderer`標準化に伴い、General Viewのcustom material/shaderは**TSL / node material first**とする。
+
+Standard production renderer pathで禁止:
+
+- `ShaderMaterial`へ依存する新規custom material
+- `RawShaderMaterial`へ依存する新規custom material
+- built-in materialの`onBeforeCompile()` monkey patchをrenderer contractにすること
+- WGSL専用実装とGLSL専用実装を別semanticとして二重管理すること
+
+custom rendering logicは可能な限りTSL/node graphで記述し、WebGPU backendではWGSL、WebGL 2 fallbackでは対応backend codeへtranspileされるrenderer architectureを利用する。
+
+既存addonがWebGL-only shaderを要求する場合はstandard renderer capabilityとは分離し、addon compatibilityで明示する。
+
+## 9. Post-processing policy
+
+Standard post-processingは`WebGPURenderer`のnode-based post-processing stackを使用する。
+
+`WebGLRenderer`向け`EffectComposer`をstandard General View renderer pipelineの前提にしない。
+
+MRT、post effect、future compute-assisted effectはWebGPURenderer/TSL pipeline上へ実装する。
+
+## 10. WebGPU initialization / render loop
+
+WebGPU initializationはasyncであるため、standard renderer adapterは次のどちらかを明示的に実装する。
+
+```text
+renderer.setAnimationLoop(render)
+```
+
+または
+
+```text
+await renderer.init()
+requestAnimationFrame(...)
+```
+
+initialization完了前のrenderer利用を暗黙timingへ依存させない。
+
+WebGPU adapter/device初期化failureはView presentation failureとして扱い、authoritative Core stateを変更しない。
+
+## 11. Three.js interop rule
+
+Blazor側`SceneProjectionModel`からECMAScript moduleへ渡すのはpresentation DTOのみ。
 
 ```text
 ConfirmedWorldView
@@ -132,53 +187,97 @@ ConfirmedWorldView
  + PresentationState
  -> SceneProjectionModel
  -> JS interop renderer adapter
- -> Three.js objects
+ -> THREE.WebGPURenderer
+ -> Three.js scene/node objects
 ```
 
 Three.js object/Vector3/Matrix/Scene/MaterialをCore/Gateway protocol typeやauthoritative domain typeとして使用しない。
 
 Three.js object identityをEntityIdとして使用しない。
 
-## 9. Three.js version locking
+WebGPU buffer/texture/pipeline identityをworld identityとして使用しない。
+
+## 12. Three.js version locking
 
 Three.js release番号はimplementation package lockへexact pinする。
 
-Phase4 designは特定release numberをwire/persistence/world schemaの一部にしない。
+Phase 4 designは特定release numberをwire/persistence/world schemaの一部にしない。
 
-理由:
+WebGPURendererは継続的に改善されているため、standard implementationではThree.js upgradeを通常のpresentation dependencyより慎重に扱い、次を必須とする。
 
-- Three.jsはpresentation dependencyである。
-- renderer/library patch/minor updateはworld resultを変えてはならない。
-- exact release pinはreproducible web buildに必要だが、design documentよりpackage lockが正しいauthorityである。
+- package lock diff review
+- WebGPU backend rendering contract tests
+- forced WebGL 2 backend rendering contract tests
+- TSL/node material compatibility tests
+- protocol/state projection tests
+- camera/render changeでCore StateDiagnostic不変
+- required browser baseline regressionなし
 
-Upgrade acceptance:
-
-- package lock diff reviewed。
-- View rendering contract tests。
-- protocol/state projection tests。
-- camera/render changeでCore StateDiagnostic不変。
-- required browser baseline regressなし。
-
-## 10. Browser baseline
+## 13. Browser capability baseline
 
 Standard browser requirementはspecific vendor version numberではなくcapability baselineで固定する。
 
-Required:
+Preferred production capability:
+
+```text
+WebAssembly
+WebGPU
+WebSocket binary frames
+ES modules
+secure context/HTTPS
+modern SameSite/Secure/HttpOnly cookie behavior for Gateway BFF
+```
+
+Compatibility minimum:
 
 ```text
 WebAssembly
 WebGL 2
 WebSocket binary frames
 ES modules
-secure context/HTTPS production
-modern SameSite/Secure/HttpOnly cookie behavior for Gateway BFF
+secure context/HTTPS
 ```
+
+WebGPU非対応でもWebGL 2を満たすbrowserは`WebGPURenderer`のfallback backendで利用可能とする。
 
 Supported-browser release matrixはimplementation/release documentationでcurrent evergreen browser versionsへpinする。
 
-Browser version変更はworld schema migration対象ではない。
+## 14. Renderer capability / diagnostics
 
-## 11. UI framework boundary
+View operational diagnosticsは少なくとも次を識別できるようにする。
+
+```text
+renderer = webgpu-renderer
+backend = webgpu | webgl2-fallback
+adapter/device initialization state
+fallback reason category
+GPU device lost count/recovery state
+```
+
+backend種別、GPU vendor、adapter timingをauthoritative world ordering/detail level/randomへ使用しない。
+
+Standard presentation capability:
+
+```text
+view.render.webgpu-renderer.v1
+```
+
+WebGPU backend availabilityそのものをrequired protocol Capabilityにはしない。WebGL 2 fallbackが利用可能だからである。
+
+## 15. Device loss / fallback behavior
+
+WebGPU device lossやrenderer initialization failure時:
+
+1. Viewのconfirmed world stateを破棄しない。
+2. pending Operation identityを変更しない。
+3. renderer adapterをpresentation degraded stateへ移す。
+4. renderer再初期化を試行できる。
+5. backend fallbackが安全に成立する場合はWebGL 2 backendへ移行できる。
+6. renderer recovery結果をCore/Gateway world resultへ反映しない。
+
+render recoveryに失敗してもsession/protocolを可能な限り維持し、UIでrender degraded/unavailableを表示できる。
+
+## 16. UI framework boundary
 
 Standard UI frameworkはBlazor WebAssembly / Razor Componentsで固定する。
 
@@ -186,7 +285,7 @@ General View render sceneだけThree.js ECMAScript moduleへ分離する。
 
 追加JavaScript UI frameworkをstandard implementationへ導入しない。必要なaddon/experimental UIはView component内部presentation choiceとする。
 
-## 12. Protocol code generation
+## 17. Protocol code generation
 
 `.proto` schemaから各componentがlocal source/generated codeを生成する。
 
@@ -200,22 +299,15 @@ General View render sceneだけThree.js ECMAScript moduleへ分離する。
 - same source `.proto` artifactをcomponent build入力としてconsumeする。
 - generated sourceをcomponent local namespaceへ配置する。
 
-## 13. Persistence library boundary
+## 18. Persistence library boundary
 
 Simulation Core persistence implementationはSQLite 3 / Zstandard contractへ従う。
 
 Exact native/package patchはrelease lockへpinする。
 
-Upgrade時:
+Upgrade時はP4-04 crash/recovery suite、snapshot/history golden fixture、SQLite durability setting validation、logical digest unchangedを必須とする。
 
-- P4-04 crash/recovery suite。
-- snapshot/history golden fixture。
-- SQLite durability setting validation。
-- logical digest unchanged。
-
-を必須とする。
-
-## 14. OpenTelemetry implementation boundary
+## 19. OpenTelemetry implementation boundary
 
 P4-07 standard telemetry model/OTLP/W3C Trace Contextへ対応する.NET OpenTelemetry SDK/providerを使用できる。
 
@@ -223,14 +315,14 @@ Exact package patch/export backendはoperational dependencyでありworld semant
 
 Exporter on/off/package patchでStateDiagnosticが変化してはならない。
 
-## 15. Build reproducibility
+## 20. Build reproducibility
 
 各component repository build stateは最低限:
 
 ```text
 TargetFramework lock
 NuGet lock/central package version resolution or equivalent deterministic package lock
-Web dependency lock for Three.js module artifact
+Web dependency lock for Three.js/WebGPURenderer module artifact
 compiler/runtime SDK version record
 protocol schema digest
 Config schema digest
@@ -238,7 +330,7 @@ Config schema digest
 
 をrelease artifact metadataへ保存する。
 
-## 16. Supported architecture rule
+## 21. Supported architecture rule
 
 Standard release target:
 
@@ -247,54 +339,48 @@ Core/Gateway: linux-x64 first reference deployment
 General/Admin View: browser-wasm
 ```
 
-Additional:
+Additional Core/Gateway targetとして`linux-arm64`、`windows-x64`はcomponent contract/determinism suite PASS後にsupported profileへ追加できる。
 
-```text
-linux-arm64
-windows-x64
-```
+OS/platform/GPU差をworld outcomeへ入力しない。
 
-はcomponent contract/determinism suite PASS後にsupported profileへ追加できる。
+## 22. Container/deployment boundary
 
-OS/platform差をworld outcomeへ入力しない。
+Container runtime/Kubernetes/systemd/IIS/reverse proxy等はdeployment choiceでありPhase 4 world contractでは固定しない。
 
-## 17. Container/deployment boundary
+ただしproduction deploymentはTLS termination trust boundary、persistent storage durability、Gateway BFF secure cookie/origin policy、Core persistence durable filesystem semanticsを維持する。
 
-Container runtime/Kubernetes/systemd/IIS/reverse proxy等はdeployment choiceでありPhase4 world contractでは固定しない。
+## 23. Non-blocking implementation-local choices
 
-ただしproduction deploymentは:
+Phase 4 completion後も実装側で選択可能:
 
-- TLS termination trust boundary明示
-- persistent storage durability contract維持
-- Gateway BFF secure cookie/origin policy維持
-- Core persistence local durable filesystem semantics維持
-
-を満たす。
-
-## 18. Non-blocking implementation-local choices
-
-Phase4 completion後も実装側で選択可能:
-
-- internal class/project folder names
+- internal class/project/folder names
 - lock-free vs locked container implementation
 - allocator/pool/arena implementation
 - compatible .NET 10 servicing patch
-- exact Three.js release lock
+- exact Three.js release pin
 - CSS/layout component details
 - telemetry backend/vendor
 - container/orchestrator
 - CI provider
 
-これらはPhase4 contractを変更しない限りdesign blockerではない。
+次はimplementation-local choiceではなくstandard contract:
 
-## 19. Acceptance
+- General View renderer class = `THREE.WebGPURenderer`
+- WebGPU preferred backend
+- WebGL 2 automatic fallback
+- custom shader/material = TSL/node-material first
+
+## 24. Acceptance
 
 Platform profile acceptance:
 
-- Core/Gatewayは.NET 10 LTS/C#14でimplementation pathが明確。
+- Core/Gatewayは.NET 10 LTS/C# 14でimplementation pathが明確。
 - View/AdminはBlazor WebAssemblyとしてimplementation pathが明確。
-- General ViewはThree.js/WebGLRenderer/WebGL2標準。
-- experimental WebGPUをrelease-critical dependencyにしていない。
+- General ViewはThree.js `WebGPURenderer`をstandard rendererとして使用する。
+- WebGPU対応環境ではWebGPU backendを選択する。
+- WebGPU非対応環境では同じ`WebGPURenderer`のWebGL 2 backendへfallbackできる。
+- standard custom material/post-processingはTSL/node-based pipelineへ適合する。
+- renderer backend差でCore StateDiagnostic/Operation outcomeが変化しない。
 - browser/clientへsecretを埋め込まない。
 - protocol generated codeをcompiled shared DTO dependencyにしていない。
 - package patch pinとsemantic schema versionを分離した。
