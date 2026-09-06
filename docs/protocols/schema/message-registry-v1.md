@@ -30,7 +30,7 @@ Handshake bootstrapでは`negotiation_generation=0`を許可し、normal message
 | G→C | `world.state.resync-request` | `StateResyncRequestV1` | `protocol.state-resync-request.v1` | world |
 | C→G | `component.health` | `ComponentHealthV1` | `protocol.component-health.v1` | optional world |
 
-Production connection requiresmTLS before protocol handshake. `gateway.register.gateway_logical_id` must match the authenticated Gateway certificate identity.
+Production connection requires mTLS before protocol handshake. `gateway.register.gateway_logical_id` must match the authenticated Gateway certificate identity.
 
 ## 3. `mv.gateway-gateway`
 
@@ -50,7 +50,7 @@ Production connection requiresmTLS before protocol handshake. `gateway.register.
 | G↔M | `auth.session.revoke` | `AuthSessionRevokeV1` | `protocol.auth-session-revoke.v1` | none |
 | M→G | `master.state` | `MasterGenerationStateV1` | `protocol.master-generation-state.v1` | master generation |
 
-Production peer connection requiresmTLS. Valid certificate identity does not itself grant Master authority; `MasterGeneration` remains authoritative.
+Production peer connection requires mTLS. Valid certificate identity does not itself grant Master authority; `MasterGeneration` remains authoritative.
 
 ## 4. `mv.gateway-view`
 
@@ -71,7 +71,7 @@ Production peer connection requiresmTLS. Valid certificate identity does not its
 | G→V | `participation.binding.state` | `ParticipationBindingViewV1` | `protocol.participation-binding-view.v1` | basis_step |
 | G→V | `component.resync-state` | `ResyncStateV1` | `protocol.resync-state.v1` | world |
 
-Login bootstrap usesHTTPS BFF endpoints where redirect is required. Normal WebSocket message transport isTLS binary WebSocket at `/ws/v1/view`.
+Login bootstrap uses HTTPS BFF endpoints where redirect is required. Normal WebSocket message transport is TLS binary WebSocket at `/ws/v1/view`.
 
 ## 5. `mv.gateway-admin-view`
 
@@ -98,7 +98,7 @@ Login bootstrap usesHTTPS BFF endpoints where redirect is required. Normal WebSo
 
 `audit.query`が`AuditPageV1`をrequest payloadとして使用する旧表記は誤りであり、本registryがsupersedeする。
 
-Normal WebSocket message transport isTLS binary WebSocket at `/ws/v1/admin`.
+Normal WebSocket message transport is TLS binary WebSocket at `/ws/v1/admin`.
 
 ## 6. Capability baseline
 
@@ -109,11 +109,11 @@ Normal WebSocket message transport isTLS binary WebSocket at `/ws/v1/admin`.
 | `mv.gateway-view` | `protocol.protobuf.v1`, `protocol.state-full.v1`, `protocol.auth-bff.v1`, `protocol.session-generation.v1`, `protocol.view-projection.v1` |
 | `mv.gateway-admin-view` | `protocol.protobuf.v1`, `protocol.auth-bff.v1`, `protocol.session-generation.v1`, `protocol.admin-health.v1` |
 
-Message-specific capabilities from `phase4-protocol-payload-catalog.md` remain applicable.
+Message-specific capabilities from `docs/design/phase4-protocol-payload-catalog.md` remain applicable.
 
 ## 7. Registry rule
 
-Every normal Standard Protocol v1 message mustresolve to exactly one row for itsProtocolId/direction/MessageType and exactly one schema type/schema id.
+Every normal Standard Protocol v1 message must resolve to exactly one row for its ProtocolId/direction/MessageType and exactly one schema type/schema id.
 
 Unknown or mismatched standard message/payload is not generic pass-through.
 
