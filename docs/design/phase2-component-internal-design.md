@@ -1,6 +1,6 @@
 # 詳細設計 Phase 2: コンポーネント内部設計
 
-Status: In Progress  
+Status: Complete / Phase 2 complete  
 Tracking: Issue #14  
 Parent: `docs/design/phase1-cross-cutting-review.md`
 
@@ -29,14 +29,15 @@ Phase 2文書がPhase 1のidentity、ordering、durability、retry/dedup、Confi
 
 ## 3. 成果物構成
 
-| component | Phase 2正本 |
+| component / review | Phase 2正本 |
 |---|---|
 | Simulation Core | `phase2-simulation-core-internal-design.md` |
 | Gateway | `phase2-gateway-internal-design.md` |
 | General View | `phase2-general-view-internal-design.md` |
 | Admin View | `phase2-admin-view-internal-design.md` |
+| Cross-component final review | `phase2-cross-component-review.md` |
 
-Phase 2終了時に本書で4component間の整合性と未解決blockerを再確認する。
+Phase 2の最終completion判定とcomponent間ownership解消は `phase2-cross-component-review.md` を正本とする。
 
 ## 4. 共通内部設計原則
 
@@ -181,22 +182,44 @@ DomainDefinition
 
 Phase 2ではdomain固有algorithmやstate schemaを定義しない。Core側にdomainを受け入れるmodule boundaryを確定する。
 
+### 8.1 Diver participation state
+
+Diver session/auth/exclusive control admissionはGatewayが所有する。
+
+world outcomeへ影響するDiver-resident bindingとabsence behavior policyのeffective state/historyはCore authority下のPhase 3 resident/participation domainへ配置する。
+
+General Viewはserver-confirmed projectionとUI draftのみを所有する。
+
+### 8.2 Admin management routing
+
+Admin Viewからのexternal management入口は `mv.gateway-admin-view` に固定する。
+
+Gatewayがmanagement target routingを所有し、Core/peer Gateway/View等へはprotocol-defined capabilityだけを使用する。未定義targetへcomponent internal APIやConfig file direct accessでshortcutしない。
+
+詳細は `phase2-cross-component-review.md` を正本とする。
+
 ## 9. Phase 2完了判定
 
-完了には次を満たす必要がある。
+完了条件をすべて満たした。
 
 - 4componentすべてで内部module責務が明文化されている。
 - state ownership、主要data flow、queue、lifecycle、failure transitionが定義されている。
 - protocol境界と内部moduleの対応が明確である。
 - Config ownershipとobservabilityがcomponent単位で定義されている。
 - Phase 3 domainをCoreへ配置する受け皿が明確である。
+- Diver bindingのcomponent-level authorityを解消した。
+- Admin management routing ownerを解消した。
 - 未承認の実装技術を固定していない。
-- component-level blockerが0件である。
+- component-level blockerは0件である。
 
-## 10. 現在の作業順
+最終判定は `docs/design/phase2-cross-component-review.md` を参照する。
 
-1. Simulation Core内部設計
-2. Gateway内部設計
-3. General View内部設計
-4. Admin View内部設計
-5. Phase 2横断整合性レビュー
+## 10. Phase 2実施順
+
+1. Simulation Core内部設計: 完了
+2. Gateway内部設計: 完了
+3. General View内部設計: 完了
+4. Admin View内部設計: 完了
+5. Phase 2横断整合性レビュー: 完了
+
+Phase 2は完了と判定する。次の詳細設計段階ではPhase 3 domain設計を開始できる。
