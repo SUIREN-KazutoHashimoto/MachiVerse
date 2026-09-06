@@ -4,6 +4,10 @@
 
 本protocolのownerはSimulation Coreです。
 
+ProtocolIdは `mv.core-gateway` とする。
+
+共通 envelope / version / Capability / result / error / correlation contractは `docs/design/phase1-protocol-envelope.md` を正本とする。
+
 ## 2. 目的
 
 本protocolは、単一Simulation Coreと複数Gatewayの間で、少なくとも次を成立させる契約です。
@@ -19,7 +23,7 @@
 - protocol version / Capability negotiation
 - Coreの公開可能なhealth / diagnostic stateの通知
 
-Concrete wire schema、transport、serializationは本段階では固定しません。
+Physical transport、serialization、compressionは個別protocol詳細設計事項として残す。
 
 ## 3. 基本原則
 
@@ -33,45 +37,53 @@ Concrete wire schema、transport、serializationは本段階では固定しま�
 - Admin Operation固有のauth/permission/format/target/allowed-condition validationはGateway責務。Coreはcommon world-state invariantを維持する。
 - network arrival timing、Gateway数、Master identity、retry countをworld outcomeの暗黙入力にしない。
 
-## 4. Version / Capability
+## 4. Common envelope / Version / Capability
 
-- Protocol versionはMajor.Minor。
-- Major mismatchはconnection reject。
-- same Majorではnewer Minorがbackward compatibilityを維持する。
-- connect時にsupported / required Capabilityを交換する。
+normal messageは `ProtocolEnvelopeV1` の共通意味を持つ。
+
+- protocol id: `mv.core-gateway`
+- negotiated ProtocolVersion: `uint16 major + uint16 minor`
+- NegotiationGenerationを明示する。
+- MessageId / CorrelationId / CausationIdをtraceに利用できる。
+- world-related messageはWorldContextV1を利用できる。
+- Operation/Batch関連messageはOperationContextV1を利用する。
+- connect時にprovided / required Capabilityを交換する。
 - required Capability不足はsilentに続行しない。
-- Major mismatch時はreject reason、双方version、必要なupdate directionをdiagnostic可能にする。
+- connection中のCapability変化はreconnectを基本とする。
 
-Addonについてstandard protocolで交換できるのは、connection safety / compatibility判定に必要なmeta informationに限定します。Addon固有function payloadやcommandを本protocolへ載せません。
+Addonについてstandard protocolで交換できるのはconnection safety / compatibility判定に必要なmetadataに限定し、Addon固有function payloadやcommandを載せない。
 
 ## 5. State synchronization
 
-CoreはGatewayが外部公開stateを構築できるよう、authoritative-derived stateを提供します。
+CoreはGatewayが外部公開stateを構築できるよう、authoritative-derived stateを提供する。
 
-State communicationには少なくとも意味上、次を判別できる必要があります。
+State communicationには少なくとも次を判別できる必要がある。
 
-- どのSimulation Stepをbasisとするstateか
+- WorldId
+- basis Simulation Step
 - full / delta等を採用する場合の適用basis
 - reconnect/resyncでcontinuityを検証するための情報
-- 必要なprotocol / Capability context
+- protocol / Capability context
 
-Gatewayはold cacheをblind trustせず、reconnect時にCoreまたはprotocol上のauthoritative sync basisから再同期します。
+共通WorldContextではstate basisを `basis_step` として表現する。
 
-具体的なPush/Pull、full/delta/snapshot、sequence fieldは詳細設計で決定します。
+Gatewayはold cacheをblind trustせず、reconnect時にCoreまたはprotocol上のauthoritative sync basisから再同期する。
+
+Push/Pull、full/delta/snapshot、continuity sequence/tokenはP1-05および本protocol個別詳細設計で決定する。
 
 ## 6. Gateway接続とMaster eligibility
 
-CoreはGateway connectionを管理し、Master候補として安全かを判断できる情報を持ちます。
+CoreはGateway connectionを管理し、Master候補として安全かを判断できる情報を持つ。
 
-Master candidateは単なるconnected状態だけでなく、少なくとも次の意味を満たす必要があります。
+Master candidateは少なくとも次を満たす。
 
 - responsive
-- compatible protocol Major/Minor
+- compatible negotiated protocol version
 - required Capability
 - Masterとして必要なsync state
 - その他、安全にfinal batchを形成・送信できる状態
 
-Exact health signal、threshold、timeoutはConfigと詳細protocolで定義します。
+Exact health signal、threshold、timeoutはConfigと詳細protocolで定義する。
 
 ## 7. Master selection / generation
 
@@ -83,23 +95,31 @@ Exact health signal、threshold、timeoutはConfigと詳細protocolで定義し�
 - stale old-generation final batchをcurrent outputとして受理しない。
 - Master identityがworld outcomeへ影響してはならない。
 
-Concrete election message、random algorithm、Gateway identifier、generation formatは詳細設計で決定します。
+MasterGenerationはPhase 1共通契約の `uint64` を使用する。authority/routing validityに依存するmessageではWorldContextV1の `master_generation` を使用する。
+
+Concrete election message、Master identity、health/election algorithmは個別詳細設計で決定する。
 
 ## 8. General View由来final Operation batch
 
-General View Operationは各Gatewayでlocal authn/authz・aggregation・external-request conflict mediationを受け、Masterでdeterministic merge/cross-Gateway mediationされたfinal batchとしてCoreへ送られます。
+General View Operationは各Gatewayでlocal authn/authz・aggregation・external-request conflict mediationを受け、Masterでdeterministic merge/cross-Gateway mediationされたfinal batchとしてCoreへ送る。
 
-Final batchには少なくとも意味上、次を追跡できる必要があります。
+Final batchは少なくとも次を追跡できる必要がある。
 
-- Master generation
-- Batch ID
-- Operation ID
+- WorldId
+- current MasterGeneration
+- BatchId
+- 各OperationId / immutable payload digest
 - source Gateway / result routing context
 - Operation type / target / content
 - deterministic orderingに必要なlogical information
-- candidate application time/Stepに必要なlogical information
+- candidate application Step / deadlineに必要なlogical information
 
-正式fieldは詳細設計で定義します。
+共通規則:
+
+- Core確定前のcandidate StepをWorldContext `effective_step`へ入れない。
+- final batch submit時の `effective_step` はNONE。
+- same OperationIdでimmutable digestが異なる場合は `protocol.operation-payload-mismatch` としてrejectする。
+- BatchId単独をOperation dedup keyにしない。
 
 ## 9. Operation ID / Batch ID / idempotency
 
@@ -107,33 +127,41 @@ Final batchには少なくとも意味上、次を追跡できる必要があり
 - same Operation IDがworldへ二度影響しない。
 - retry時にnew Operationとして再採番しない。
 - Batch IDとMaster generationでACK loss、retry、old-generation outputを追跡可能にする。
-- duplicate requestに対しworld mutationをrepeatしない意味論を持つ。
+- duplicate requestに対しworld mutationをrepeatしない。
+- MessageId / CorrelationIdをOperation dedup keyにしない。
 
-Dedup retention period、storage/data structure、Batch ID format等は詳細設計で決定します。
+Dedup retention period、storage/data structure、retention expiry後のduplicate resultはP1-06で決定する。
 
 ## 10. Deterministic ordering
 
-Coreへ渡されるfinal batch orderは、network raceやthread completion orderだけで決めません。
+Coreへ渡されるfinal batch orderはnetwork raceやthread completion orderだけで決めない。
 
-Same effective Operation setでは、Gateway数、Master identity、network timing等が異なってもsame logical Core orderになる必要があります。
+Same effective Operation setではGateway数、Master identity、network timing等が異なってもsame logical Core orderになる必要がある。
 
-具体的ordering key、same-Step tie-break ruleは詳細設計で決定します。
+Core authoritative same-Step orderingは `docs/design/phase1-determinism-ordering-random.md` のSameStepOrderKeyに従う。
+
+Gateway側external-request mergeの具体keyは本protocol / Gateway↔Gateway protocol詳細で定義するが、physical arrival orderをauthorityにしない。
 
 ## 11. Candidate / final application Step
 
-Q203/Q223/Q224/Q276に従います。
+Q203/Q223/Q224/Q276に従う。
 
-- Gateway/Masterはprotocol ruleに従いcandidate application time/Stepに必要な情報を形成する。
+- Gateway/Masterはprotocol ruleに従いcandidate application Step / deadline情報を形成する。
 - Coreがcurrent Simulation Step、deadline、Master generation、deterministic order等からfinal valid application Stepを確定する。
 - network arrival wall-clockをauthoritative application timeにしない。
 - late Operationでpast finalized Stepをretroactive rewriteしない。
 - late Operationはdefined ruleに従いfuture valid Stepへdeferまたはrejectする。
 
-Exact candidate field、deadline/grace field、reject/defer codeは詳細設計で定義します。
+WorldContextV1では次を区別する。
+
+- `basis_step`: state basis。
+- `effective_step`: Core確定済みauthoritative apply Stepのみ。
+
+Exact candidate/deadline/grace fieldsとdefer/reject algorithmはP1-06で定義する。
 
 ## 12. Core側のGeneral Operation validity
 
-Coreはfinal batchをauthoritative stateへ適用する前に、common world/simulation semanticsとして少なくとも次を確認できます。
+Coreはfinal batchをauthoritative stateへ適用する前に少なくとも次を確認できる。
 
 - target existence / validity
 - current stateからのstate transition成立性
@@ -141,30 +169,44 @@ Coreはfinal batchをauthoritative stateへ適用する前に、common world/sim
 - simulation rule
 - deterministic apply order
 
-Masterで外部要求競合が整理済みでも、authoritative world上成立しないOperationはreject可能です。
+Masterでexternal-request conflictが整理済みでもauthoritative world上成立しないOperationはreject可能。
 
-Batch全件atomicかpartial successを許可するかは詳細設計で決定します。
+Batch全件atomicかpartial successを許可するかはP1-06のBatch state machineで決定する。
 
 ## 13. Admin Operation
 
-Admin View由来Core OperationもGatewayから本protocolを通じてCoreへ到達します。
+Admin View由来Core OperationもGatewayから本protocolを通じてCoreへ到達する。
 
-責務は次のように分離します。
+責務:
 
-- Gateway: Admin authn/authz、operation format、target、Admin operationとしてのallowed condition等。
-- Core: UI roleを解釈せず、全Operation共通のworld-state invariant / state-transition consistencyを維持。
+- Gateway: Admin authn/authz、operation format、target、Admin operationとしてのallowed condition。
+- Core: UI roleを解釈せず、全Operation共通のworld-state invariant / state-transition consistency。
 
-Gateway-approved Admin Operationであってもcommon invariantを破壊するstate transitionをCoreが無条件適用してはなりません。
+Gateway-approved Admin Operationであってもcommon invariantを破壊するstate transitionをCoreが無条件適用してはならない。
 
-Login処理はGateway↔Gateway側でMasterへproxyして確定します。Login以外のAdmin Core OperationをMaster経由へ統一するかは未確定です。
+Login処理はGateway↔Gateway側でMasterへproxyして確定する。Login以外のAdmin Core OperationをMaster経由へ統一するかは個別routing詳細で決定する。
 
-## 14. Operation result
+## 14. Operation result / error
 
-CoreはOperation/Batch resultを、元requestへ対応付け可能なidentity contextと共に返却できる契約を持ちます。
+Operation/Batch resultは元requestへ対応付け可能なCorrelationIdとOperationContextを持つ。
 
-Resultには成功/拒否だけでなく、必要に応じreason、final application Step、duplicate/stale generation等を識別できる意味が必要です。
+共通ResultStatus / stable code / RetryAdviceはP1-04共通契約に従う。
 
-具体message/codeは詳細設計で定義します。
+Applied Operation resultでは該当する場合、WorldContext `effective_step` にCore確定Stepを設定する。
+
+少なくとも次を識別可能にする。
+
+- success
+- accepted / pending
+- duplicate
+- world-state reject
+- late Operation
+- stale MasterGeneration
+- protocol / Capability incompatibility
+- temporarily unavailable
+- internal failure
+
+ACKはCore authoritative mutationのterminal successと同一視しない。
 
 ## 15. Master failover / live migration
 
@@ -173,38 +215,42 @@ Resultには成功/拒否だけでなく、必要に応じreason、final applica
 - live migrationに耐える。
 - old generation outputをrejectする。
 - failover timingそのものがworld outcomeを変えない。
+- retry後もOperationId / BatchId / immutable digestを維持する。
 
-Exact handoff message、heartbeat、timeout等は詳細設計で定義します。
+Exact handoff message、heartbeat、timeout等は個別詳細設計で定義する。
 
 ## 16. Gateway reconnect / resync
 
-- reconnect時にold cacheをauthoritativeとして扱わない。
+- reconnect時にversion / Capability handshakeを再実行する。
+- old cacheをauthoritativeとして扱わない。
 - basis Simulation Step / generation等を確認してresyncする。
 - missing/reorder/sync mismatch時にrefetch/rebuild可能にする。
 - Gatewayはresync中のinconsistent state sequenceをnormal publishしてはならない。
 
-Userへのresync表示はGateway↔View protocolの責務です。
+State continuity sequence/tokenとrecovery checkpoint relationはP1-05で定義する。
 
 ## 17. Gatewayが0台の場合
 
-Gateway connectionが0台でもCoreのSimulation Stepはそれ自体を理由に停止しません。
+Gateway connectionが0台でもCoreのSimulation Stepはそれ自体を理由に停止しない。
 
-Protocol上、新規external requestが存在しないだけであり、Core internal eventと既にaccepted済みOperationは通常規則に従って進行します。
+新規external requestが存在しないだけであり、Core internal eventと既にaccepted済みOperationは通常規則に従って進行する。
 
-Gateway復旧後にabsence期間をrewindしません。
+Gateway復旧後にabsence期間をrewindしない。
 
 ## 18. Diagnostic / operational state
 
-Gatewayが外部運用へ必要な範囲で、次のようなCore状態をprotocol化可能にします。
+Gatewayが外部運用へ必要な範囲で次をprotocol化可能にする。
 
 - current Simulation Step
 - real-time target lag等のhealth
 - current Master / generation
 - save / recovery state
 - compatibility / Capability error
-- relevant Config validation error
+- relevant Config generation / validation error
 
-具体metrics/schemaはobservability詳細設計で定義します。
+ConfigGenerationを含める場合、WorldContextの値はsenderであるCoreのeffective Config generationを意味する。
+
+具体metrics/schemaはobservability詳細設計で定義する。
 
 ## 19. 禁止事項
 
@@ -212,25 +258,37 @@ Gatewayが外部運用へ必要な範囲で、次のようなCore状態をprotoc
 - stale Master generationをcurrentとして受理すること
 - stable Operation IDなしのretry
 - duplicate Operationのdouble apply
+- MessageId / CorrelationIdをOperation dedup keyにすること
+- candidate Stepをauthoritative effective_stepとして送ること
 - network arrival orderのauthoritative ordering化
 - Gateway cacheをauthoritative stateとして扱う契約
 - Admin UI roleをCore authzへ持ち込むこと
 - standard protocolへaddon functional payloadを載せること
-- Major mismatchでnormal communicationを継続すること
+- negotiated compatibility不成立でnormal communicationを継続すること
+- ACKをterminal world successと同一視すること
 
 ## 20. 詳細設計へ残す事項
 
+P1-04で共通化済み:
+
+- common envelope
+- version field / handshake
+- Capability schema基本形
+- common result/error/retry
+- correlation/causation
+- MasterGeneration / basis/effective Stepの共通context
+- Operation immutable digest inclusion/exclusion
+
+残る個別事項:
+
 - physical transport / connection direction
 - serialization / compression
-- handshake / Capability schema
-- state sync method and fields
-- Gateway identifier / Master generation representation
-- Master health/election messages and algorithm
-- final batch wire schema
-- deterministic ordering key
-- candidate/final Step fields
-- Batch atomicity / partial success
-- dedup retention and storage
-- result message/error codes
-- Admin login以外のMaster path
-- timeout / reconnect / resync message set
+- state sync full/delta schema
+- continuity sequence/token
+- Gateway identifier / Master election messages
+- final batch payload schema
+- candidate Step / deadline / grace fields
+- Batch atomicity / partial success state machine
+- dedup retention / terminal result persistence
+- login以外Admin routing
+- heartbeat / timeout / reconnect / resync message set
