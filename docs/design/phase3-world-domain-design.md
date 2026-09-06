@@ -1,8 +1,9 @@
 # 詳細設計 Phase 3: 世界シミュレーションDomain設計
 
-Status: In Progress  
+Status: Complete  
 Tracking: Issue #15  
 Predecessors: `phase1-cross-cutting-review.md`, `phase2-cross-component-review.md`  
+Completion review: `phase3-traceability-cross-cutting-review.md`
 
 ## 1. 目的
 
@@ -19,10 +20,12 @@ Phase 3では次を優先する。
 1. `docs/requirements` の確定要件
 2. Phase 1 final reviewとその参照先
 3. Phase 2 final reviewとその参照先
-4. 本Phaseのcross-domain contract
-5. 個別domain文書
+4. `phase3-traceability-cross-cutting-review.md`
+5. `phase3-cross-domain-causality.md`
+6. `phase3-domain-common-contract.md`
+7. 個別domain文書
 
-個別domain文書が共通contractと矛盾する場合、明示的なPhase 3 cross-cutting reviewで例外化されない限り共通contractを優先する。
+個別domain文書の作業時点Statusや古い未決定記述がcompletion reviewと競合する場合、completion reviewを優先する。
 
 ## 3. Phase 3で維持する前提
 
@@ -65,9 +68,11 @@ Domain間関係は、すべて次のいずれかとして明示する。
 
 単なる`state_read(S)`は同一Stepの実行DAG edgeを意味しない。循環依存は原則として`State(S)`参照と`State(S+1)`へのintent/eventへ分解し、暗黙の相互即時mutationを作らない。
 
-## 6. Phase 3作業分解
+## 6. Phase 3作業分解と成果物
 
-### P3-01 Domain共通契約・detail framework
+### P3-01 Domain共通契約・detail framework — Complete
+
+成果物: `phase3-domain-common-contract.md`
 
 - DomainDefinitionのPhase 3拡張
 - state ownership、event/intent、dependency種別
@@ -75,53 +80,55 @@ Domain間関係は、すべて次のいずれかとして明示する。
 - promotion/demotionの共通invariant
 - aggregate/external exchange contract
 
-成果物: `phase3-domain-common-contract.md`
+### P3-02 空間・自然環境 — Complete
 
-### P3-02 空間・自然環境
+成果物:
 
-- `spatial`
-- `environment`
-- 地形、地下、気候、天候、水、海洋、生態系、資源、災害
+- `phase3-spatial-domain-design.md`
+- `phase3-environment-domain-design.md`
 
-### P3-03 物理・建造環境
+### P3-03 物理・建造環境 — Complete
 
-- `physical_built`
-- 3D移動、衝突、建物、室内、建設、損傷、物品位置
+成果物: `phase3-physical-built-domain-design.md`
 
-### P3-04 住人・参加
+### P3-04 住人・参加 — Complete
 
-- `resident`
-- `participation`
-- 身体、健康、知覚、感情、記憶、目標、技能、日常行動、家族、世代、Diver binding
+成果物:
 
-### P3-05 社会・経済
+- `phase3-resident-domain-design.md`
+- `phase3-participation-domain-design.md`
 
-- `society_economy`
-- 組織、雇用、市場、物流、金融、契約、情報認知、評判、教育、文化
+### P3-05 社会・経済 — Complete
 
-### P3-06 政治・制度・治安
+成果物: `phase3-society-economy-domain-design.md`
 
-- `governance_security`
-- 統治、法律、税、公共サービス上の権限、外交、軍事、治安、領域
+### P3-06 政治・制度・治安 — Complete
 
-### P3-07 インフラ・情報
+成果物: `phase3-governance-security-domain-design.md`
 
-- `infrastructure_information`
-- 交通、水、電力、通信、メディア、記録、施設capacity
+### P3-07 インフラ・情報 — Complete
 
-### P3-08 Cross-domain因果・aggregation統合
+成果物: `phase3-infrastructure-information-domain-design.md`
+
+### P3-08 Cross-domain因果・aggregation統合 — Complete
+
+成果物: `phase3-cross-domain-causality.md`
 
 - domain間因果連携表
 - shared invariant
 - cross-domain event/intent flow
+- semantic transaction
 - detail promotion/demotionの連鎖
 - 外部簡略領域との交換
 
-### P3-09 Traceability・横断整合性review
+### P3-09 Traceability・横断整合性review — Complete
 
-- Q001〜Q279の全件traceability
+成果物: `phase3-traceability-cross-cutting-review.md`
+
+- Q001〜Q279の欠番なしtraceability
 - ownership重複監査
 - dependency cycle監査
+- Phase 1/2 compatibility review
 - Phase 4 handoff
 - unresolved domain-level blocker 0件確認
 
@@ -189,21 +196,20 @@ Detail transitionはdeterministicであり、原則として`State(S)`、schedul
 
 ## 11. Traceability運用
 
-Phase 3のtraceabilityは最終的にQ001〜Q279を1件ずつ次の形で対応付ける。
+Phase 3 completion reviewではQ001〜Q279を欠番なくcoverage分類し、各要件をowning/supporting domainまたはPhase 1/2 cross-cutting contractへ対応付ける。
 
-```text
-RequirementTrace {
-  requirement_id,
-  owning_domain,
-  supporting_domains,
-  design_document,
-  section,
-  coverage_status,
-  note
-}
-```
+同一semantic ownership/coverageを持つ連続要件はrangeとして記載できるが、range間に未分類Qを残してはならない。
 
-`coverage_status`は`covered` / `cross_cutting` / `phase4_detail` / `not_applicable_to_domain`のいずれかとし、単に未記入のまま完了扱いしない。
+必要に応じPhase 4でschema/algorithm単位のtraceabilityを1件単位へ細分化する。
+
+coverageは次を区別する。
+
+- `domain_covered`
+- `cross_cutting`
+- `foundation_or_component_contract`
+- `phase4_algorithm_detail`
+
+`phase4_algorithm_detail`はPhase 3 semantic contractが定義済みである場合に限りblockerとしない。
 
 ## 12. Phase 4へ持ち越してよい事項
 
@@ -220,8 +226,20 @@ RequirementTrace {
 
 ただし、これらを後回しにするためにDomain ownership、event意味論、conservation、detail transitionの意味を曖昧にしてはならない。
 
-## 13. 現在状態
+## 13. Completion state
 
-P3-01を開始し、Phase 3全体のdomain family、作業分解、dependency分類、共通detail level、promotion/demotion invariant、traceability方式を確定した。
+P3-01〜P3-09を完了した。
 
-次は`phase3-domain-common-contract.md`を正本としてP3-01の共通event/intent/state contractを固め、その後P3-02の`spatial` / `environment`から個別domain設計へ進む。
+確定事項:
+
+- 8 domain familyのauthoritative ownership
+- domain state/event/intent/update phase/conflict/invariant
+- D0〜D3 detail framework、cadence、promotion/demotion
+- domain間因果DAGとstable domain rank
+- mining、construction、birth/death、market delivery、information、justice、disaster、medical、military等のcross-domain semantic transaction
+- identity/stock/obligation/flow/provenance conservation class
+- Q001〜Q279 traceability
+- Phase 1/2とのcompatibility
+- Phase 4 handoff boundary
+
+`phase3-traceability-cross-cutting-review.md`でunresolved domain-level blocker 0件を確認し、Phase 3をCompleteと判定した。
