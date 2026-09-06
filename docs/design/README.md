@@ -60,12 +60,19 @@ Status: Complete
 - `phase4-core-data-structures.md`
 - `phase4-domain-state-registry.md`
 
-### P4-02 Protocol
+### P4-02 Protocol / Auth
 
 - `phase4-protocol-schema.md`
 - `phase4-auth-session-protocol.md`
+- `phase4-internal-component-auth-profile.md`
 - `phase4-protocol-payload-catalog.md`
 - `phase4-protocol-completion-review.md`
+- `../protocols/phase4-resolution.md`
+- `../protocols/schema/README.md`
+- `../protocols/schema/common.proto`
+- `../protocols/schema/auth.proto`
+- `../protocols/schema/payloads.proto`
+- `../protocols/schema/message-registry-v1.md`
 
 ### P4-03 Config
 
@@ -101,6 +108,7 @@ Status: Complete
 ### P4-08 Test / acceptance
 
 - `phase4-test-acceptance.md`
+- `phase4-test-acceptance-addendum.md`
 
 ### P4-09 Platform / implementation breakdown / completion
 
@@ -108,32 +116,54 @@ Status: Complete
 - `phase4-implementation-work-breakdown.md`
 - `phase4-completion-review.md`
 
+### Issue #17 横断整合性解決
+
+- `phase4-cross-consistency-resolution.md`
+- `phase4-requirement-traceability-index.md`
+
 Phase 4はIssue #16で管理し、Phase 1〜3の意味契約を、実装者が追加のarchitecture判断をほぼ必要としないdata structure / protocol / Config / persistence / algorithm / performance / observability / test / platform / implementation work packageへ具体化した。
 
-Phase 4全体方針とP4-01〜P4-09状態は `phase4-implementation-ready-design.md`、Phase 4 completion判定と実装移行条件は `phase4-completion-review.md` を正本とする。
+Phase 4 completion判定は `phase4-completion-review.md`、詳細設計全体の最終横断整合性と正本優先順位は `phase4-cross-consistency-resolution.md` を正本とする。
 
-主要な確定値:
+個別Phase 4文書に作業時点の `Status: In Progress` が残る場合、それはwork-log metadataであり、completion/final reviewと `phase4-cross-consistency-resolution.md` のfinal status matrixが最終statusを上書きする。
+
+## 主要な確定値
 
 - 8 domain / 97 authoritative partition
 - Config schema 4 component / 136 standard fields
 - OperationKind 69 / EventKind 129 / IntentKind 63 / CrossDomainTransactionKind 17
-- Protocol Buffers + gRPC / binary WebSocket
+- Protocol Buffers proto3 + internal gRPC bidirectional streaming / external binary WebSocket
+- version-controlled `.proto` + component-local code generation
+- Core↔Gateway / Gateway↔Gateway production mutual TLS
 - SQLite WAL/FULL + 103 required Snapshot sections
 - fixed-point/integer deterministic algorithm profile
 - 30Hz reference performance profile
 - OpenTelemetry-compatible observability + append-only audit
-- P4-08 release acceptance suite
-- .NET 10 LTS / C# 14 / Blazor WebAssembly / Three.js WebGLRenderer profile
+- P4-08 release acceptance suite + protocol/mTLS addendum
+- .NET 10 LTS / C# 14 / Blazor WebAssembly / Three.js `WebGPURenderer` profile（WebGPU preferred / WebGL2 backend fallback）
+- Q001〜Q279 per-requirement traceability index
 - 38 implementation work packages / dependency DAG
 
 Unresolved detailed-design blocker: 0件。
 
+## Protocol正本の読み方
+
+Protocolは責務ごとに正本を分離する。
+
+- semantic/validation/security/ordering/retry/dedup: `phase4-protocol-*`, `phase4-auth-*`, `phase4-internal-component-auth-profile.md`
+- exact protobuf field/enum/service declaration: `docs/protocols/schema/*.proto`
+- exact MessageType → payload mapping: `docs/protocols/schema/message-registry-v1.md`
+- boundary overview/governance: `docs/protocols/*.md`
+
+Generated DTO/libraryは正本ではない。
+
 ## 読み方
 
 1. `docs/requirements` の確定要件を最上位入力とする。
-2. `docs/architecture` でcomponent/world領域の責務を確認する。
-3. `docs/protocols` でcomponent間通信契約を確認する。
-4. 本directoryのPhase文書でcross-cutting/internal detailを確認する。
-5. 同一Phase内で古い未決定記述とcompletion/final reviewが競合する場合、completion/final reviewを優先する。
+2. 各Phaseのcompletion/final reviewと `phase4-cross-consistency-resolution.md` で最終判定を確認する。
+3. `docs/architecture` でcomponent/world領域の責務を確認する。
+4. `docs/protocols` でcomponent境界を確認し、wire実装時は `docs/protocols/schema` を参照する。
+5. 本directoryのPhase文書でcross-cutting/internal detailを確認する。
+6. 古い未決定/TODO/handoff記述とcompletion/final resolutionが競合する場合、completion/final resolutionを優先する。
 
 実装時にPhase 4契約の変更が必要になった場合、implementation内でsilent変更せずdesign amendment、schema/version、compatibility/migration、P4-08 testを合わせて更新する。
