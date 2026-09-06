@@ -18,7 +18,7 @@ Phase 1 では次を確定対象とする。
 6. Snapshot / replay / recovery の一貫性境界
 7. Pause / resume / late Operation / retry / dedup の共通意味論
 
-本コミットでは 1 と 2 の初版を確定し、3〜7 の作業順を固定する。
+P1-01 と P1-02 を完了し、現在の次作業は P1-03 Config 詳細契約とする。
 
 ## 2. 設計原則
 
@@ -28,6 +28,7 @@ Phase 1 では次を確定対象とする。
 - 再送・failover・reconnect で同一論理 Operation の識別子を変更しない。
 - save / replay / recovery を跨いで Entity identity と適用済み Operation identity を維持する。
 - protocol の意味契約は `docs/protocols` を正本とし、本書はその共通型・共通意味論を定義する。
+- deterministic encoding / hash / random の具体契約は `docs/design/phase1-determinism-ordering-random.md` を正本とする。
 
 ## 3. Simulation Step / World Time
 
@@ -138,8 +139,11 @@ EntityCreationContext {
 - `creator_domain` と `creation_kind` は protocol / subsystem ごとに固定された stable token を使用する。
 - `local_ordinal` は同一 creator context 内の deterministic ordinal であり、thread completion order から採番しない。
 - 同一 logical creation event は replay でも同一 context を生成しなければならない。
-- EntityId の最終 hash / derivation algorithm は Phase 1 の「乱数・ID context」作業で固定する。
-- hash algorithm 固定前でも、上記 context schema は変更しない前提で後続設計を進める。
+- concrete derivation は `MV-DCBOR-v1` で context を deterministic encodeし、domain-separated SHA-256 の先頭 128 bitを利用する。
+- reserved ZERO が生成された場合のみ deterministic nonce を増加させて再導出する。
+- 異なる creation context 間の true 128 bit collision を検出した場合、runtime creation order 依存の再採番をせず fatal invariant violation とする。
+
+詳細は `docs/design/phase1-determinism-ordering-random.md` を参照する。
 
 ### 4.3 `OperationId`
 
@@ -149,6 +153,7 @@ OperationId は一つの論理 Operation の End-to-End identity とする。
 - Gateway hop、Master 切替、retry、reconnect、ACK loss で変更しない。
 - payload を変更して同じ OperationId を再利用することを禁止する。
 - receiver は同じ OperationId で異なる immutable payload digest を検出した場合、protocol violation として拒否する。
+- immutable payload digest algorithm は domain-separated SHA-256 とする。
 - dedup key の主キーは OperationId とする。
 - OperationId の生成方式は origin component の責務だが、128 bit の一意性契約を満たすことを必須とする。
 
@@ -176,16 +181,41 @@ MasterGeneration := uint64
 - generation は Master identity と独立している。
 - wrap-around を禁止し、上限到達前に安全停止する。
 
-## 5. same-Step ordering への制約
+## 5. same-Step ordering 契約
 
-Phase 1 の ordering 詳細設計に先立ち、次を固定する。
+`SimulationStep` が第一の authoritative time coordinate であり、`effective_step = S` の simulation-affecting input は `State(S)` から `State(S+1)` を生成する transition に参加する。
 
-- `SimulationStep` が第一の authoritative time coordinate である。
-- physical arrival timestamp は ordering key に含めない。
-- thread ID / completion order は ordering key に含めない。
-- Master identity は ordering key に含めない。
-- OperationId / BatchId は identity であり、意味上の優先度を表さない。
-- 同一 Step で順序が必要な場合は、後続設計で stable logical ordering tuple を定義する。
+same-Step の canonical total order は次の tuple で固定する。
+
+```text
+SameStepOrderKey = (
+  phase,
+  domain_rank,
+  conflict_scope_digest,
+  semantic_priority,
+  intent_id
+)
+```
+
+- `phase` は control / external_input / scheduled_internal / derived_internal / system_internal / finalization の固定列挙。
+- `domain_rank` は dependency DAG から deterministic topological sort で決定する。
+- 同順位 domain は stable DomainToken の ASCII bytewise ascending で決定する。
+- `conflict_scope_digest` は domain-separated SHA-256。
+- `semantic_priority` は domain schema が固定し、default 0。
+- `intent_id` は deterministic source context から導出した 128 bit identity で、最後の total-order tie-breaker とする。
+
+次を ordering key の暗黙入力にしない。
+
+- physical arrival timestamp
+- thread ID / completion order
+- process-local iteration order
+- Gateway数
+- Master identity
+- retry count
+
+OperationId / BatchId / EntityId の大小自体を business priority として解釈しない。
+
+詳細は `docs/design/phase1-determinism-ordering-random.md` を参照する。
 
 ## 6. Pause / resume に対する時間契約
 
@@ -199,12 +229,14 @@ Phase 1 の ordering 詳細設計に先立ち、次を固定する。
 Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保持する共通項目を固定する。
 
 - WorldId
+- WorldSeed
 - SimulationStep
 - StepRate history と current rate_generation
 - current MasterGeneration
 - EntityId を含む authoritative entity state
 - accepted/applied OperationId の再現に必要な履歴
 - simulation-affecting Config history
+- enabled domain set / dependency declaration
 
 具体的 snapshot boundary、dedup retention、history compaction は後続作業で決定する。
 
@@ -212,7 +244,7 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 
 ### P1-01 共通時間・識別子
 
-状態: 初版作成済み。
+状態: 完了。
 
 - SimulationStep / StepRate / WorldTime
 - WorldId / EntityId / OperationId / BatchId
@@ -220,21 +252,32 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 
 ### P1-02 決定論的順序・競合・乱数 context
 
-次に着手する。
+状態: 完了。
 
+正本: `docs/design/phase1-determinism-ordering-random.md`
+
+- `MV-DCBOR-v1` deterministic semantic encoding
+- SHA-256 common hash suite / domain separation
 - same-Step ordering tuple
-- deterministic merge / conflict key
-- random context schema
+- deterministic dependency topological order
+- conflict scope / deterministic merge modes
+- internal EventId / IntentId
 - EntityId derivation algorithm
-- immutable payload digest algorithm
+- stateless RandomContextV1 / RandomWord64
+- rejection sampling / uniform binary64 mapping
+- immutable Operation payload digest algorithm
+- deterministic state diagnostic hash algorithm
 
 ### P1-03 Config 詳細契約
+
+状態: 次に着手する。
 
 - schema version
 - simulation-affecting / operational / presentation 分類
 - startup-only / runtime-safe / world-regeneration-required
 - atomic apply boundary
 - history / migration
+- dependency declaration の Config 上の位置付け
 
 ### P1-04 Protocol 共通 envelope
 
@@ -268,15 +311,14 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 
 ## 9. 未決定事項
 
-本初版時点の未決定事項は次の通り。
+P1-02 完了時点の未決定事項は次の通り。
 
-- EntityId の concrete derivation/hash algorithm
-- Operation immutable payload digest algorithm
-- same-Step ordering tuple
-- random context の concrete encoding と algorithm
-- Config schema
+- Config schema / version / classification / migration
 - common protocol envelope
+- protocol field ごとの immutable payload digest inclusion/exclusion
 - snapshot/replay consistency boundary
+- authoritative state diagnostic hash の slice/tree granularity
 - dedup retention window
+- Pause queue / late Operation の具体規則
 
 これらは Phase 1 内の後続作業で解消し、Phase 1 完了時には横断 blocker を 0 件とする。
