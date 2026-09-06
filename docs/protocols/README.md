@@ -6,7 +6,12 @@
 
 Simulation Core、Gateway、General View、Admin Viewはcode/build/deploy/runtime単位まで独立し、component間通信はprotocolだけを通じて行う。shared DTO libraryや内部型共有をprotocolの代替にしない。
 
-Phase 1 の共通 message envelope、version / Capability negotiation、result / error、correlation / causation、World Time / generation context の詳細契約は `docs/design/phase1-protocol-envelope.md` を正本とする。
+Phase 1共通契約の正本:
+
+- envelope / version / Capability / result: `docs/design/phase1-protocol-envelope.md`
+- persistence / recovery / continuity: `docs/design/phase1-persistence-replay-recovery.md`
+- Operation scheduling / retry / dedup / Batch / failover: `docs/design/phase1-operation-lifecycle-retry-dedup.md`
+- Phase 1最終整合レビュー: `docs/design/phase1-cross-cutting-review.md`
 
 ## 2. 基本原則
 
@@ -14,43 +19,36 @@ Phase 1 の共通 message envelope、version / Capability negotiation、result /
 
 禁止する例:
 
-- 別componentのproject参照
-- 別component DLL参照
-- shared DTO libraryによるcontract共有
+- 別component project / DLL参照
+- shared DTO libraryを唯一のcontract正本にすること
 - 別component内部class/interface参照
 - direct method call
-- same processであることを前提としたcommunication
+- same process前提communication
 - protocol documentに存在しない暗黙仕様への依存
 
-各componentは相手componentのimplementationなしでも独立build/test可能な境界を目指す。
+各componentは相手implementationなしでも独立build/test可能な境界を維持する。
 
 ### 2.2 Protocol documentを契約正本とする
 
-各protocol設計書では、必要に応じ少なくとも次を明示する。
+各protocolは必要に応じ少なくとも次を明示する。
 
-- communication purpose
+- communication purpose / owner
 - sender / receiver
-- message / request / event type
-- field semantics
-- required / optional
+- message type
+- field semantics / required / optional
 - data type / range / unit
 - success / error semantics
-- ordering
-- idempotency / dedup
-- retry
-- timeout / disconnect
-- synchronization basis
-- authentication / authorization handling
-- version / backward compatibility
-- Capability negotiation
-- World Time / Simulation Stepとの関係
-- Operation / Batch identityが関係する場合の意味
+- ordering / idempotency / dedup / retry
+- timeout / disconnect / resync
+- authentication / authorization
+- version / Capability
+- World Time / SimulationStep
+- Operation / Batch identity
+- durability / custody scope
 
-transportやserializationの具体技術は個別protocol詳細設計で決定する。ただし共通 envelope の field semantics を失ってはならない。
+physical transport / serializationは個別詳細設計で選択できるが、共通semanticを変更してはならない。
 
-## 3. Protocol所有責任
-
-Protocol ownerは、接続する2componentのうちよりSimulation Coreに近いcomponentとする。
+## 3. Protocol owner
 
 | 境界 | owner | 利用側 | ProtocolId |
 |---|---|---|---|
@@ -61,16 +59,16 @@ Protocol ownerは、接続する2componentのうちよりSimulation Coreに近�
 
 標準構成にCore↔Core protocolは存在しない。
 
-Ownerは公開機能、message semantics、compatibility、変更方針を定義する。利用側はownerのinternal implementationへ依存せずprotocol contractだけを基準に実装する。
+Ownerは公開message semantics、compatibility、version changeを管理し、利用側はownerのinternal implementationへ依存しない。
 
 ## 4. Common envelope
 
-全標準 protocol の normal message は論理的に `ProtocolEnvelopeV1` の意味を持つ。
+全標準protocolのnormal messageは論理的に `ProtocolEnvelopeV1` の意味を持つ。
 
-最低限次を共通化する。
+共通field:
 
 - envelope version
-- ProtocolId / negotiated Major.Minor
+- ProtocolId / negotiated ProtocolVersion
 - NegotiationGeneration
 - MessageType
 - MessageId
@@ -80,276 +78,371 @@ Ownerは公開機能、message semantics、compatibility、変更方針を定義
 - optional OperationContextV1
 - protocol-owned payload
 
-MessageId / CorrelationId / sender instance identityをworld operation ordering、dedup、乱数、Entity ID生成の入力にしない。
-
-WorldContextでは `basis_step` とCore確定済み `effective_step` を区別する。Gateway/Masterのcandidate Stepをauthoritative `effective_step` として表現しない。
-
-OperationContextではstable OperationId、immutable payload digest、BatchIdをmessage transport identityから分離する。
+MessageId / CorrelationId / sender instance identityをworld ordering、dedup、random、EntityId生成へ使用しない。
 
 ## 5. Versioning
 
-### 5.1 Major.Minor
+```text
+ProtocolVersion {
+  major: uint16,
+  minor: uint16
+}
+```
 
-各protocolはMajor.Minorを `uint16` の組として識別する。
-
-- backward-compatibleでないsemantic changeはMajorを更新する。
-- same Majorのcompatible changeはMinorを更新する。
-- handshakeでは双方のsupported rangeから共通Majorの最大値を選び、そのMajorの共通Minor範囲で最大Minorをnegotiated versionとする。
-- 共通versionが存在しない場合はnormal connectionを拒否する。
-- normal messageはsender実装最新版ではなくnegotiated versionを明示する。
-
-### 5.2 Minor compatibility
-
-Minor updateで既存必須fieldを削除したり、既存fieldの意味・型・unitを互換不能に変更したりしない。
-
-new fieldはabsent時に旧Minorと同じ意味になるoptional fieldとし、新message typeや新機能はnegotiated MinorまたはCapabilityで送信可否を制御する。
-
-newer Minor側は、older peerが理解できない内容を無条件送信しない。
+- incompatible semantic changeはMajor更新。
+- same Major compatible changeはMinor更新。
+- handshakeは双方supported rangeから共通Major最大値、そのMajorの共通Minor範囲最大値を選ぶ。
+- 共通version不在はnormal connection reject。
+- normal messageはnegotiated versionを明示する。
+- negotiated Minorを超えるsemanticを無条件送信しない。
 
 ## 6. Capability Negotiation
-
-Connection確立時にprotocol versionとCapabilityを交換する。
 
 ```text
 CapabilityId := StableToken
 ```
 
-incompatible semantic revisionは別tokenとし、例として `state.delta.v1` のようにversionをtokenへ含める。
+- provided / required Capabilityを分離する。
+- 双方required setが相手provided setのsubsetであることを確認する。
+- required不足をsilent degradationしない。
+- optional effective setは双方providedのintersection。
+- incompatible capability semantic revisionは新tokenとする。
 
-- provided Capabilityとrequired Capabilityを区別する。
-- 双方のrequired setが相手provided setのsubsetであることを確認する。
-- effective optional setは双方providedのintersection。
-- required Capability不足はconnectionまたは対象featureを明示的に拒否する。
-- required Capability不足をsilent degradationで隠さない。
-
-connection中のCapability変化はPhase 1標準ではreconnectして再negotiationする。双方が `protocol.live-renegotiation.v1` を提供し、個別protocolが安全なquiesce/barrierを定義した場合のみlive renegotiationを許可する。
+connection中のCapability changeはreconnectを基本とする。双方が `protocol.live-renegotiation.v1` を提供し、個別protocolが安全なbarrierを定義した場合のみlive renegotiation可能。
 
 ## 7. NegotiationGeneration
 
-- handshake前は0。
-- initial handshake成功後は1。
-- safe live renegotiation成功ごとに1増加する。
-- reconnect時は新connectionとして1から開始する。
-- stale NegotiationGeneration messageをcurrent semanticsで解釈しない。
+```text
+NegotiationGeneration := uint32
+```
 
-NegotiationGenerationをworld orderingへ使用しない。
+- handshake前: 0
+- initial success後: 1
+- safe live renegotiation成功ごとに+1
+- reconnectは新connectionとして1から開始
+- stale generation messageをcurrent semanticsで解釈しない
 
-## 8. Addon関連情報の標準Protocol境界
+world orderingへ使用しない。
 
-Q246とQ255を次のように統一する。
+## 8. Addon metadata境界
 
-### 8.1 標準protocolで交換可能な情報
+standard protocolで交換できるAddon情報はconnection safety / compatibility用metadataに限定する。
 
-標準protocolはconnection safety / compatibility確認に必要なaddon metadataのみ交換できる。
-
-共通metadataは少なくとも次を表現可能にする。
+許可例:
 
 - addon identity
 - enabled state
-- major/minor/patch version
+- version
 - required / provided Capability
-- compatibility判断に必要なaddon dependency range
+- dependency range
 
-### 8.2 標準protocolに載せないもの
-
-標準protocolには次を設けない。
+標準protocolに載せない:
 
 - addon固有function payload
 - addon固有command
-- addon world-specific extra dataを運ぶgeneric extension payload
-- addon都合で標準message semanticsを書き換える仕組み
+- world-specific generic extension payload
+- addon都合で標準message semanticを書き換える仕組み
 
-### 8.3 Addon固有の追加Protocol
+addon固有cross-component通信はadditional protocol / framework addonの責務。
 
-Addonがcomponent境界を越えて固有情報を交換する必要がある場合は、標準protocolへ混在させず、protocol拡張の前提framework addon等と、そのaddon間で成立するadditional protocolを利用する。
+## 9. Operation共通要件
 
-## 9. Addon不整合と接続安全性
+world-affecting Operationを扱うprotocolは次を維持する。
 
-- required addon / version / Capabilityが不足・非互換ならunsafe featureをenableしない。
-- component startup時のaddon構成・dependency・Capability・Configに不整合がある場合は、重大度に関係なくstartupを拒否する。
-- saved worldが依存するaddon条件に不整合があれば、明示migrationが完全成功しない限りworld startupを拒否する。
-
-## 10. Operationを扱うProtocolの共通要件
-
-World Stateへ影響するOperationを扱うprotocolは次を契約化する。
-
-- stable Operation ID
+- stable OperationId
 - immutable Operation payload digest
-- Batch ID
-- Master generation / epoch
-- retry時のsame logical identity
-- dedup / idempotency
+- immutable `OperationSchedulingAdmissionV1`
+- BatchId
+- MasterGeneration
+- retry時same logical identity
+- End-to-End dedup / idempotency
 - stale generation handling
 - deterministic orderingに必要なlogical information
-- candidate / final application Simulation Step semantics
-- deadline / late behavior
+- candidate / final effective Step分離
+- deadline / grace / late handling
+- durable custody boundary
 
-同一OperationIdのdigestへはlogical Operation meaningを含め、MessageId、CorrelationId、BatchId、MasterGeneration、retry情報、routing情報、candidate/final Step等の可変metadataを含めない。
+same OperationId + different immutable digestは `protocol.operation-payload-mismatch` としてrejectする。
 
-同一OperationIdで異なるimmutable digestを検出した場合は `protocol.operation-payload-mismatch` としてrejectし、world mutationしない。
+## 10. immutable digest boundary
 
-Network arrival time、retry count、thread schedulingだけでworld outcomeを変えない。
+`mv.operation-payload.v1`へ含める:
+
+- operation type
+- logical target
+- immutable semantic content / arguments
+- origin固定semantic constraints
+- `OperationSchedulingAdmissionV1`
+  - admission_basis_step
+  - scheduling_policy_generation
+  - requested_not_before_step
+  - requested_deadline_step
+
+含めない:
+
+- ProtocolEnvelopeV1
+- MessageId / CorrelationId / CausationId
+- BatchId
+- MasterGeneration / NegotiationGeneration
+- retry count / retry timing
+- routing information
+- network arrival timestamp
+- Gateway / Master candidate Step
+- Core final/effective Step
+- ACK / result metadata
 
 ## 11. World Time / generation context
 
-Protocol上でsimulation timeを扱う場合、authoritativeな時間基準はSimulation Coreの整数Simulation Stepと整合させる。
+```text
+WorldContextV1 {
+  world_id,
+  basis_step,
+  effective_step,
+  master_generation,
+  config_generation
+}
+```
 
-- `basis_step`: state / publication / resync等の基準State(S)。
-- `effective_step`: Coreが確定した `State(S) -> State(S+1)` の適用Step。
-- candidate Step / deadline: individual payloadで明示し、effective_stepと混同しない。
-- `master_generation`: authority / routing validityに必要なmessageで指定する。
-- `config_generation`: sender componentのeffective behavior識別に必要な場合に指定する。
+- `basis_step`: state / publication / resyncの基準 `State(S)`。
+- `effective_step`: Core確定済み `State(S) -> State(S+1)` transition Step。
+- candidate Stepはpayloadのcandidate fieldとして表現する。
+- `master_generation`: authority / routing validity。
+- `config_generation`: sender ownerのeffective Config generation。
 
-MasterGeneration、ConfigGenerationの大小をbusiness priorityへ使用しない。
+異なるgenerationを相互代用しない。
 
-## 12. Correlation / causation
+## 12. Result / error / retry
 
-- request rootでCorrelationIdを発行する。
-- proxy / result routingでも同じinteractionを追跡できる範囲で維持する。
-- response / ACK / async resultはrequestと同じCorrelationIdを使用する。
-- CausationIdは直接原因となったMessageIdが明確な場合に設定する。
-- MessageIdは各envelopeのtrace identityであり、OperationIdの代替ではない。
+共通status:
 
-Tracing identityをworld causalityそのものの根拠として使用しない。
+```text
+SUCCESS
+ACCEPTED
+PENDING
+NO_CHANGE
+DUPLICATE
+REJECTED
+FAILED
+```
 
-## 13. Result / error / retry
+machine behaviorはStableToken codeで分岐し、diagnostic textの文字列比較へ依存しない。
 
-共通resultは `SUCCESS / ACCEPTED / PENDING / NO_CHANGE / DUPLICATE / REJECTED / FAILED` を区別する。
+主要common code:
 
-machine behaviorはStableTokenのresult/error codeで分岐し、diagnostic messageの文字列比較へ依存しない。
+```text
+ok
+accepted
+pending
+no-change
+duplicate
 
-標準codeには少なくとも次を含む。
+protocol.malformed
+protocol.wrong-protocol
+protocol.version-incompatible
+protocol.capability-missing
+protocol.unknown-message-type
+protocol.negotiation-stale
+protocol.operation-payload-mismatch
+protocol.batch-payload-mismatch
 
-- `protocol.version-incompatible`
-- `protocol.capability-missing`
-- `protocol.malformed`
-- `protocol.negotiation-stale`
-- `protocol.operation-payload-mismatch`
-- `auth.unauthenticated`
-- `auth.unauthorized`
-- `request.invalid`
-- `request.stale`
-- `world.invalid-state`
-- `world.late-operation`
-- `master.stale-generation`
-- `config.stale-generation`
-- `component.unavailable`
-- `component.resyncing`
-- `internal.failure`
+auth.unauthenticated
+auth.unauthorized
+auth.session-expired
+auth.session-revoked
 
-RetryAdviceは `DO_NOT_RETRY / RETRY_SAME_IDENTITY / RECONNECT_THEN_RETRY / RESYNC_THEN_RETRY / RENEGOTIATE_THEN_RETRY` を共通意味として持つ。
+request.invalid
+request.conflict
+request.stale
+request.timeout
 
-retry_after_millis等のwall-clock retry adviceは運用情報であり、authoritative application Stepを決める入力にしない。
+operation.accepted
+operation.scheduled
+operation.result-details-expired
 
-## 14. ACKとterminal result
+world.not-found
+world.invalid-state
+world.late-operation
+world.deadline-exceeded
+world.late-deferred
+world.pause-deferred
+world.resync-required
 
-ACKはprotocol hop上の受理・配送状態であり、Core authoritative world mutationのterminal successと同一視しない。
+master.stale-generation
+config.stale-generation
+config.invalid
 
-world-affectingOperationはOperationId単位で二重mutationしない。保持期間内のduplicateには可能な限り同じterminal semantic resultを返す。
+batch.partial
+batch.complete
 
-具体的dedup retentionとexpiry後の挙動はP1-06で定義する。
+component.unavailable
+component.resyncing
+internal.failure
+```
 
-## 15. Auth / Authorization
+RetryAdvice:
 
-- General View / Admin Viewのauth domainは分離する。
+```text
+DO_NOT_RETRY
+RETRY_SAME_IDENTITY
+RECONNECT_THEN_RETRY
+RESYNC_THEN_RETRY
+RENEGOTIATE_THEN_RETRY
+```
+
+wall-clock retry delayはoperational advisoryでありauthoritative effective Stepへ使用しない。
+
+## 13. ACK / custody / terminal result
+
+ACKはhop上の受理・custody stateであり、Core authoritative world mutationのterminal successとは限らない。
+
+world-affecting OperationについてCoreが `ACCEPTED` を返す場合、Operation acceptanceを先にdurable化する。
+
+applied terminal resultは対応transition commitのdurability前に返さない。
+
+Gateway delivery custody:
+
+```text
+SOURCE_HELD
+ -> MASTER_RECEIVED
+ -> CORE_ACCEPTED
+ -> TERMINAL
+```
+
+Master receipt ACKだけを理由にsourceが唯一のretry可能copyを捨てない。
+
+## 14. retry / dedup
+
+same logical Operation retryは常に:
+
+- same OperationId
+- same immutable payload digest
+- same scheduling admission context
+
+を維持する。
+
+Core terminal OperationはWorldId lifecycle中、minimum `OperationDedupTombstoneV1` を保持する。
+
+rich result detailsは有限保持可能だが、tombstone expiryによりsame OperationIdのdouble applyを可能にしてはならない。
+
+Gateway/View等のlocal request cache retentionはこのCore dedup contractの代替ではない。
+
+## 15. Batch
+
+Batchはtransport aggregation identity。
+
+```text
+BatchProcessingMode := PER_OPERATION
+BatchStatus := RECEIVED | PARTIAL | COMPLETE | REJECTED
+```
+
+- Batchを暗黙all-or-nothing transactionとしない。
+- exact same logical batch retryのみsame BatchIdを維持可能。
+- contents変更 / subset retry / re-mergeはnew BatchId。
+- contained OperationIdは維持する。
+- Batch historyがexpireしてもOperation dedup安全性を失わない。
+
+## 16. Pause / late
+
+Pause中もOperation受信 / validation / durable acceptanceは可能。
+
+worldが `State(P)` でPause中:
+
+- Pause前にeffective_step=Pへschedule済みOperationはtransition Pに残す。
+- Pause中新規accept Operationは最速 `P+1`。
+- Pause durationだけでSimulationStep deadlineを消費しない。
+- Pause arrival orderをsame-Step orderへ使用しない。
+
+late policy:
+
+```text
+REJECT | DEFER_WITHIN_GRACE
+```
+
+finalized past stateをretroactive rewriteしない。
+
+## 17. State continuity / resync
+
+Core-derived confirmed state chainは `StateContinuityToken` で識別する。
+
+- process restartでtokenを再採番しない。
+- delta base token mismatch時はblind applyせずresync。
+- Gatewayが独自authoritative-looking tokenを生成しない。
+- View predictionへconfirmed tokenを付けない。
+
+Reconnect後はversion / Capability negotiationを再実行し、current confirmed basisへ同期してからnormal publicationへ戻る。
+
+## 18. Auth / Authorization
+
+- General View / Admin View auth domainを分離する。
 - sender ComponentInstanceId / MessageId / CorrelationIdはcredentialではない。
-- Gateway-owned protocolではunauthorized requestをCoreへ到達させない。
-- Admin Operation固有のvalidity checkはGateway責務。
-- Core-facing protocolではCoreがUI roleを解釈せずcommon world-state invariantを維持する。
-- loginはconnected GatewayからMaster Gatewayへproxyし、Masterで確定する要件をGateway関連protocolで表現する。
+- unauthorized requestをGatewayからCoreへforwardしない。
+- Admin Operation固有permissionはGateway責務。
+- CoreはUI roleを解釈せずcommon world-state invariantを維持する。
+- loginはconnected GatewayからMaster GatewayへproxyしMasterでfinalizeする。
 
 具体credential/token/IdPは個別auth詳細設計で決定する。
 
-## 16. Failure / reconnect / resynchronization
+## 19. Failure / reconnect / recovery
 
 Protocolは必要に応じ次を明示する。
 
-- disconnect時にconfirmed / unconfirmedとみなすもの
+- confirmed / unconfirmed boundary
 - retry ownership
 - ACK loss
 - duplicate message
-- missing / reorder detection
-- reconnect時のsync basis
-- cacheがauthoritativeでないこと
-- resync中のpublication behavior
+- reconnect sync basis
+- resync state
 - Master failover / generation handoff
+- Operation status recovery
 
-Reconnect後はversion / Capability negotiationを再実行する。Operation retryではstable OperationId / BatchIdを維持する。
+Core acceptance不明時はsame identity retryまたはOperationId status queryで収束させる。
 
-## 17. Error diagnostics
+## 20. Independent testing
 
-Compatibility・safety上のrejectは、可能な範囲でoperator/userが原因を診断できるようにする。
+各componentは相手implementationを必要とせず、少なくとも次をcontract test可能にする。
 
-Version incompatibilityでは双方のsupported versionと必要なupdate directionを確認可能にする。Required Capability / addon compatibility mismatchでも原因をsilentに隠さない。
-
-## 18. Protocol変更の流れ
-
-1. protocol ownerが変更要求を整理する。
-2. protocol設計書を先に更新する。
-3. same Majorのcompatible Minor changeかMajor changeが必要なsemantic breakか判定する。
-4. Capability impactを確認する。
-5. common envelope / result / error contractとの整合を確認する。
-6. addon meta informationに影響する場合standard/additional protocol境界を確認する。
-7. 各component implementationが独立してcontractへ追従する。
-
-Shared code変更によって暗黙に複数componentを同時変更させない。
-
-## 19. Independent testing
-
-各componentは相手implementation自体を必要とせずprotocol boundaryをtest可能にする。
-
-少なくとも次を検証可能にする。
-
-- same Major / same Minor compatibility
-- same Major / different Minor backward compatibility
+- same/different Minor compatibility
 - no common version reject
 - required Capability mismatch
-- stale NegotiationGeneration reject
+- stale NegotiationGeneration
+- stale MasterGeneration
+- same OperationId + digest mismatch
+- same BatchId + BatchDigest mismatch
 - retry / duplicate / idempotency
-- stale Master generation reject
-- same OperationId + payload digest mismatch reject
-- ACKとterminal resultの区別
+- ACKとterminal resultの分離
+- candidate/effective Step混同拒否
+- continuity mismatch resync
 
-具体test framework/code generation方式は個別component設計で決定する。
-
-## 20. 禁止事項
+## 21. 禁止事項
 
 - component間code sharingをcommunication contractとすること
-- shared internal type / DTO library dependency
+- shared internal DTOへの依存
 - direct method call
-- standard protocolにないimplicit behaviorへの依存
-- Minor updateでsemantic compatibilityを壊すこと
-- common version不在をnormal connectionとして許容すること
-- required Capability不足を黙って無視すること
-- stale NegotiationGenerationをcurrent semanticsで解釈すること
-- standard protocolへaddon functional payload / commandを埋め込むこと
+- undocumented implicit behavior
+- Minor updateでsemantic compatibilityを破壊すること
+- common version不在でnormal connection
+- required Capability不足のsilent degradation
+- stale NegotiationGeneration / MasterGenerationのcurrent化
+- addon functional payloadをstandard protocolへ埋め込むこと
 - MessageId / CorrelationIdをOperation dedup keyにすること
-- network arrival orderをauthoritative world operation orderとして利用すること
-- ACKをauthoritative world successと同一視すること
+- network arrival orderをauthoritative world orderにすること
+- candidate Stepをauthoritative effective_stepにすること
+- ACKをterminal world successと同一視すること
+- retryでOperationIdを再採番すること
+- terminal tombstoneをWorldId継続中にexpiryしてdouble apply可能にすること
 
-## 21. 詳細設計へ残す事項
+## 22. 個別詳細設計へ残す事項
 
-P1-04で次は共通契約として確定済み。
-
-- ProtocolEnvelopeV1
-- ProtocolId / version representation
-- handshake version selection
-- Capability identifier / required-provided判定
-- NegotiationGeneration
-- addon compatibility metadata
-- WorldContextV1 / OperationContextV1
-- correlation / causation
-- common result/error/retry taxonomy
-- immutable Operation digestのprotocol inclusion/exclusion
-
-後続または個別protocol詳細設計へ残す事項:
+Phase 1共通semanticは確定済み。次は個別component / protocol実装詳細として残す。
 
 - concrete network transport
 - concrete serialization / compression
-- protocol-specific message payload schema
-- reconnect/resync message set
-- candidate Step / deadline具体field
-- dedup retention
-- state continuity sequence/token
+- protocol-specific payload schema
+- state publication full/delta payload strategy
+- auth credential / session technology
+- exact operational timeout/backoff values
+- physical durable queue / dedup index implementation
 - additional addon protocol framework
 - schema tooling / code generation policy
+
+これらはPhase 1共通契約を変更してはならない。
