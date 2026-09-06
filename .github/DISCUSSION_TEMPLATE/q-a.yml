@@ -1,0 +1,37 @@
+title: "[Q&A] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        MachiVerseの使い方、設計意図、開発方針などに関する質問用です。
+        不具合として再現可能な問題はIssueの不具合報告を利用してください。
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 質問
+      description: 知りたいことを具体的に記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 背景・試したこと
+      description: 質問に至った背景、確認済みの文書、試したことなどがあれば記載してください。
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 関連領域
+      options:
+        - Simulation Core
+        - Gateway
+        - View
+        - Administration View
+        - Protocol
+        - Documentation / Repository maintenance
+        - Add-on / Integration
+        - 複数 / 不明
+    validations:
+      required: true

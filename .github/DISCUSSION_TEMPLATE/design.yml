@@ -1,0 +1,53 @@
+title: "[Design] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        設計上の選択肢、責務境界、Protocol、互換性などを実装前に議論するためのフォームです。
+        ここでの議論だけを根拠に仕様を確定せず、合意した内容は正本となる設計文書・Protocol・Issue等へ反映します。
+
+  - type: textarea
+    id: topic
+    attributes:
+      label: 議論したい設計事項
+      description: 何を決める必要があるのか、現在どこが未確定なのかを記載してください。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 主な対象
+      options:
+        - Simulation Core
+        - Gateway
+        - View
+        - Administration View
+        - Protocol
+        - Documentation / Repository maintenance
+        - Add-on / Integration
+        - 複数コンポーネント
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 前提・制約
+      description: 既に確定している要件、責務境界、性能・決定論・互換性上の制約、関連設計書等を記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: options
+    attributes:
+      label: 選択肢
+      description: 現時点で考えられる案と、それぞれの利点・欠点を記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: open-questions
+    attributes:
+      label: 未解決事項
+      description: この議論で確認・決定したい事項を記載してください。
