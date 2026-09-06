@@ -1,6 +1,6 @@
 # 詳細設計 Phase 2: Gateway内部設計
 
-Status: In Progress  
+Status: Complete / Phase 2 reviewed  
 Tracking: Issue #14  
 Parent: `docs/design/phase2-component-internal-design.md`
 
@@ -270,7 +270,7 @@ continuity gap、basis anomaly、Core reconnect等を検出した状態。新規
 
 - old cacheをcurrentとみなさない。
 - Core current finalized basisを取得する。
--必要ならcacheを全再構築する。
+- 必要ならcacheを全再構築する。
 - connected Viewへsync stateを通知する。
 - world-affecting Operationの新規admissionを安全なconfirmed basisが戻るまで拒否/保留する。
 
@@ -313,6 +313,8 @@ AdminProtocolBoundary
 Core simulation Admin Operationは通常のstable Operation/custody pathへ入れる。
 
 Config/operational managementについてtarget component protocol routeが未確定な場合でも、Admin Viewからinternal object/direct Config fileへshortcutしない。
+
+Phase 2の最終横断レビューにより、management target routingのcomponent-level ownerはGatewayとする。exact downstream payload/routeはprotocol Capabilityに従う後続詳細であり、未定義targetへdirect internal accessでfallbackしない。
 
 ## 12. queue設計
 
@@ -453,3 +455,5 @@ world scheduling semantics自体はCore-owned policyを使用し、Gateway Confi
 - cache representation
 - publication full/delta encoding
 - metrics/log backend
+
+最終component間ownershipとcompletion判定は `phase2-cross-component-review.md` を正本とする。
