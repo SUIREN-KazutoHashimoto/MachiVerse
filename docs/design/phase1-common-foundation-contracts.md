@@ -18,7 +18,7 @@ Phase 1 では次を確定対象とする。
 6. Snapshot / replay / recovery の一貫性境界
 7. Pause / resume / late Operation / retry / dedup の共通意味論
 
-P1-01 と P1-02 を完了し、現在の次作業は P1-03 Config 詳細契約とする。
+P1-01〜P1-03 を完了し、現在の次作業は P1-04 Protocol 共通 envelope とする。
 
 ## 2. 設計原則
 
@@ -29,6 +29,7 @@ P1-01 と P1-02 を完了し、現在の次作業は P1-03 Config 詳細契約�
 - save / replay / recovery を跨いで Entity identity と適用済み Operation identity を維持する。
 - protocol の意味契約は `docs/protocols` を正本とし、本書はその共通型・共通意味論を定義する。
 - deterministic encoding / hash / random の具体契約は `docs/design/phase1-determinism-ordering-random.md` を正本とする。
+- Config schema / classification / apply / history の具体契約は `docs/design/phase1-config-contract.md` を正本とする。
 
 ## 3. Simulation Step / World Time
 
@@ -217,14 +218,33 @@ OperationId / BatchId / EntityId の大小自体を business priority として�
 
 詳細は `docs/design/phase1-determinism-ordering-random.md` を参照する。
 
-## 6. Pause / resume に対する時間契約
+## 6. Config 共通契約
+
+Config の詳細は `docs/design/phase1-config-contract.md` を正本とする。
+
+Phase 1 共通契約として次を固定する。
+
+- operator-editable Config は component-owned UTF-8 TOML 1.0 document とする。
+- schema version は `major.minor`。
+- field は `SIMULATION / OPERATIONAL / PRESENTATION` の impact と、`RUNTIME_SAFE / RESTART_REQUIRED / WORLD_REGENERATION_REQUIRED` の mutability を持つ。
+- compatible old Config は deterministic migration と schema default completion を行い、補完後 Config を atomic write-back する。
+- unknown field、future unsupported schema、不整合、write-back failure は fail-fast とする。
+- `ConfigGeneration := uint64` で atomic revision を識別する。
+- EffectiveConfig は `MV-DCBOR-v1` と domain-separated SHA-256 (`mv.config.v1`) で `ConfigDigest` を持つ。
+- runtime file edit / filesystem event をそのまま effective Config にしない。runtime activation は explicit Config change Operation とする。
+- runtime change は stable `OperationId`、expected base generation、atomic change set を持つ。
+- `SIMULATION + RUNTIME_SAFE` change は explicit `effective_step = S` を持ち、`State(S) -> State(S+1)` transition開始前に全体を切り替える。
+- saved world の simulation Config/history を restore continuation の正本とし、current local file の差を過去へ silent override しない。
+- Config file 自体を component boundary 越しに共有しない。
+
+## 7. Pause / resume に対する時間契約
 
 - Pause 開始時に current SimulationStep を固定する。
 - Pause 中に受信した simulation-affecting Operation を停止 Step へ即時適用しない。
 - resume 後、Core が protocol 規則に従い future valid Step を割り当てる。
 - Pause 時間の wall-clock 長さは replay 条件に含めない。
 
-## 7. persistence / replay への最低保存項目
+## 8. persistence / replay への最低保存項目
 
 Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保持する共通項目を固定する。
 
@@ -235,12 +255,12 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 - current MasterGeneration
 - EntityId を含む authoritative entity state
 - accepted/applied OperationId の再現に必要な履歴
-- simulation-affecting Config history
+- simulation-affecting Config generation / digest / history
 - enabled domain set / dependency declaration
 
 具体的 snapshot boundary、dedup retention、history compaction は後続作業で決定する。
 
-## 8. Phase 1 作業分解
+## 9. Phase 1 作業分解
 
 ### P1-01 共通時間・識別子
 
@@ -270,22 +290,31 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 
 ### P1-03 Config 詳細契約
 
-状態: 次に着手する。
+状態: 完了。
 
-- schema version
-- simulation-affecting / operational / presentation 分類
-- startup-only / runtime-safe / world-regeneration-required
-- atomic apply boundary
-- history / migration
-- dependency declaration の Config 上の位置付け
+正本: `docs/design/phase1-config-contract.md`
+
+- TOML 1.0 Config document / component ownership
+- `ConfigSchemaVersion` major.minor / deterministic migration
+- default completion / atomic write-back
+- SIMULATION / OPERATIONAL / PRESENTATION classification
+- RUNTIME_SAFE / RESTART_REQUIRED / WORLD_REGENERATION_REQUIRED classification
+- `ConfigGeneration` / `ConfigDigest`
+- atomic runtime ConfigChangeSet / optimistic base generation check
+- simulation effective Step boundary
+- Config history / save / replay / restore contract
+- cross-component effective information distribution boundary
 
 ### P1-04 Protocol 共通 envelope
+
+状態: 次に着手する。
 
 - message envelope
 - protocol version / Capability negotiation
 - result / error
 - correlation / causation
 - generation / Step fields
+- ConfigGeneration / ConfigDigest integration
 
 ### P1-05 persistence / replay / recovery
 
@@ -309,13 +338,14 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 - `docs/protocols` へ確定契約を反映
 - Phase 2〜4 の blocker 0 件確認
 
-## 9. 未決定事項
+## 10. 未決定事項
 
-P1-02 完了時点の未決定事項は次の通り。
+P1-03 完了時点の未決定事項は次の通り。
 
-- Config schema / version / classification / migration
 - common protocol envelope
+- protocol version / Capability の concrete wire representation
 - protocol field ごとの immutable payload digest inclusion/exclusion
+- Config error/result の wire mapping
 - snapshot/replay consistency boundary
 - authoritative state diagnostic hash の slice/tree granularity
 - dedup retention window
