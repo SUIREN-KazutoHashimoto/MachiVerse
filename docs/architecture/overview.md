@@ -2,199 +2,254 @@
 
 ## 1. 目的
 
-本書は、MachiVerse の最上位アーキテクチャを定義します。MachiVerse は、C# で開発する超大規模エージェントベースの世界シミュレーターです。
+本書はMachiVerseの最上位アーキテクチャと、複数設計書へ共通する責務境界を定義する。
 
-標準実装ではシミュレーションコアを1つとし、その内部のマルチスレッド化と計算効率向上によってシミュレーション可能範囲を拡大します。
+要件の決定記録は `docs/requirements`、横断矛盾の解消記録は `consistency-audit.md` を参照する。本書と古い個別設計書の記述が食い違う場合は、後続の確定要件を優先する。
+
+MachiVerseはC#で開発する大規模なエージェントベース世界シミュレーターであり、標準構成では単一Simulation Coreが世界状態の正本を保持する。
 
 ## 2. 最上位コンポーネント
 
-| 領域 | 主目的 | 主な責務 |
+| コンポーネント | 主目的 | 主な責務 |
 |---|---|---|
-| シミュレーションコア | 世界シミュレーションの実行 | 状態保持、30Hz計算、時間進行、ルール実行、マスターゲートウェイ選出、最終操作バッチの妥当性判定・適用 |
-| ゲートウェイ | 外部との接続・認可・緩衝・調停境界 | 状態キャッシュ、約1秒遅延、利用者認証・認可、操作集約、ローカル競合調停、マスター経由の全体集約、管理要求仲介、スケールアウト |
-| 一般ビュー | シミュレーション利用者向けUI | ロールに応じた参照、参加、シミュレーション操作 |
-| 管理ビュー | システム運用者向けUI | 各コンポーネントのログ・ステータス・Config・運用コマンド、シミュレーションへの運用干渉 |
+| Simulation Core | 世界シミュレーションの実行 | 正本状態、Simulation Step、世界ルール、決定論的更新、保存・復旧、Gatewayから受けたOperationの世界状態への適用 |
+| Gateway | 外部との接続・認証・認可・緩衝・調停 | cache、公開遅延buffer、認証・認可、Operation集約、Master役割、再送・重複排除、再同期、Admin要求仲介 |
+| General View | 一般利用者向けWeb UI | Diver参加、Spectator参照、Moderator/Admin操作、Three.jsによるフル3D表示 |
+| Admin View | システム運用者向けUI | component状態、log、metrics、Config、運用command、Admin Operation |
+
+General View上のAdministratorとAdmin Viewの運用権限は別の認証・認可ドメインであり、一方の権限を他方へ自動付与しない。
 
 ## 3. コンポーネント完全分離
 
-4コンポーネントはコード、ビルド、配布、実行単位まで分離します。
+4コンポーネントは、コード、build、配布、実行単位まで独立させる。
 
-- コンポーネント間でプロジェクト参照を持たない。
-- DLL・内部型・共通DTOライブラリを通信契約として共有しない。
-- 各コンポーネントは独立してビルド・実行可能とする。
-- コンポーネント間連携はプロトコル経由のみとする。
-- 通信契約の正本は `docs/protocols` 配下のプロトコル設計書とする。
-- 並行実装しても通常の機能開発で同一実装ファイルを編集しない構造とする。
+- コンポーネント間でproject参照を持たない。
+- DLL、内部型、共通DTO libraryを通信契約として共有しない。
+- 他コンポーネント内部への直接method callを行わない。
+- 各コンポーネントは独立してbuild・実行・deploy可能とする。
+- コンポーネント間の連携はprotocolのみを通じて行う。
+- 標準通信契約の正本は `docs/protocols` とする。
 
-## 4. 基本構成
+## 4. 標準トポロジ
 
-標準構成ではシミュレーションコアは1つです。シミュレーションコアとゲートウェイは1対多です。複数ゲートウェイ構成では、コアが接続中のゲートウェイから1台をランダムにマスターゲートウェイとして選出します。
+標準構成ではSimulation Coreは1つとし、Core : Gatewayは1:Nとする。
 
 ```text
-一般ビュー群 ──> Gateway A ─┐
-                             │ local batch
-一般ビュー群 ──> Gateway B ─┼──> Master Gateway ── final batch ──> Simulation Core
-                             │
-一般ビュー群 ──> Gateway C ─┘
+General View ──> Gateway A ─┐
+                            │
+General View ──> Gateway B ─┼──> Master Gateway ──> Simulation Core
+                            │
+Admin View ─────> Gateway C ─┘
 ```
 
-マスターゲートウェイ自身も通常のゲートウェイとして利用者要求を受け持てます。
+General ViewとAdmin ViewはCoreへ直接接続しない。
 
-一般ビュー・管理ビューはシミュレーションコアへ直接接続しません。
+複数Coreによる世界分割は標準構成に含めない。将来、独立アドオンとして複数Core化する可能性は残すが、その場合に標準構成の完全再現性を維持しない設計を許容する可能性がある。標準protocolにCore↔Core通信は存在しない。
 
-## 5. プロトコル所有責任
+## 5. Protocol所有責任
 
-| 境界 | 所有者 | 設計書 |
+| 境界 | 所有者 | 正本 |
 |---|---|---|
-| シミュレーションコア ↔ ゲートウェイ | シミュレーションコア | `docs/protocols/core-gateway.md` |
-| ゲートウェイ ↔ ゲートウェイ | ゲートウェイ | `docs/protocols/gateway-gateway.md` |
-| ゲートウェイ ↔ 一般ビュー | ゲートウェイ | `docs/protocols/gateway-view.md` |
-| ゲートウェイ ↔ 管理ビュー | ゲートウェイ | `docs/protocols/gateway-admin-view.md` |
+| Simulation Core ↔ Gateway | Simulation Core | `docs/protocols/core-gateway.md` |
+| Gateway ↔ Gateway | Gateway | `docs/protocols/gateway-gateway.md` |
+| Gateway ↔ General View | Gateway | `docs/protocols/gateway-view.md` |
+| Gateway ↔ Admin View | Gateway | `docs/protocols/gateway-admin-view.md` |
 
-標準実装にはシミュレーションコア間プロトコルを含めません。
+ProtocolはMajor.Minorでversioningする。Major不一致は接続拒否、同一Major内の新Minorは後方互換を維持する。接続時は必要なCapabilityを交換し、意味的不整合を黙って許容しない。
 
-## 6. 一般ビュー利用者ロール
+## 6. 権威ある世界状態と時間
 
-| ロール | シミュレーション干渉 | 参照範囲 |
-|---|---|---|
-| ダイバー | シミュレーション住民と同程度 | 参加者として許可された情報 |
-| スペクテイター | 一切不可 | システムのバイタルに関係しない程度のステータス |
-| モデレーター | シミュレーションおよび下位利用者へ限定的に可能。クリティカル操作は禁止 | スペクテイターと同等 |
-| アドミニストレーター | シミュレーションへ完全に干渉可能 | 一般ビュー向け全ステータス |
+- 標準構成ではSimulation Coreだけが世界状態の正本を持つ。
+- Gateway cache、View表示状態、予測状態は非権威な派生状態である。
+- 権威あるWorld Timeは整数ベースのSimulation Stepとする。
+- 標準計算頻度は30Hzで、外部Configから変更可能とする。
+- 30Hzに処理が追いつかなくても、処理遅延だけを理由に世界Stepを飛ばさない。
+- Pause、速度変更等を可能にするが、世界結果へ影響するOperationは明示的な有効Stepへ決定論的に割り当てる。
 
-一般ビューのアドミニストレーターと管理ビューの運用権限は別概念です。
+社会的な暦・時計・住人の時刻認識と、Coreの権威あるSimulation Stepは別概念とする。
 
-## 7. 一般ビューからコアへの操作経路
+## 7. 決定論
 
-一般ビュー由来の操作は以下の段階を通ります。
+同じWorld Seed、同じシミュレーション影響Config、同じ有効Operation集合・順序・適用Stepからは同じ論理的な世界結果を得なければならない。
+
+世界結果を次へ依存させない。
+
+- 処理速度
+- OS scheduling
+- thread実行順・task完了順
+- Gateway数
+- Master Gateway個体
+- network到着競争
+- wall clockやOS時刻を暗黙に使った世界乱数
+
+Coreは最大16 threadを利用可能とし、実使用数は1〜16の外部Configとする。thread数を変えても同一再現条件では世界結果を変えない。
+
+異なるCPU、OS、runtimeを跨ぐすべての浮動小数演算のbit完全一致は標準要件とはしないが、制御可能な非決定性は排除する。
+
+## 8. 乱数・Entity ID
+
+- 世界乱数はWorld Seed、World Time/Simulation Step、対象・用途・event等の決定論的contextから導出する。
+- shared stateful PRNGの消費順をworld outcomeへ依存させない。
+- 永続Entity IDは保存・再開・replayを跨いで同じEntityを識別する。
+- 未来に生まれる全Entity IDを世界生成時に事前列挙する必要はなく、出生・生成eventの決定論的contextから生成できる。
+
+## 9. General View由来Operation
+
+General View由来のCore干渉Operationは概念的に次の経路を通る。
 
 ```text
-一般ビュー
-   ↓
+General View
+  ↓
 接続先Gateway
-   ↓ 認証・認可
-ローカル操作集約
-   ↓
-ローカル競合調停
-   ↓ local batch
+  ↓ 認証・認可
+local aggregate / local conflict mediation
+  ↓ local batch
 Master Gateway
-   ↓ 全Gateway分を集約
-Gateway間競合調停
-   ↓ final batch
+  ↓ deterministic merge / cross-Gateway mediation
+final batch
+  ↓
 Simulation Core
-   ↓
-世界状態・ルール上の最終妥当性判定
-   ↓
-正本状態へ反映
+  ↓ world-state invariant / simulation-rule validity
+authoritative world state
 ```
 
-非マスターゲートウェイは、一般ビュー由来操作バッチをコアへ直接送信しません。
+- 非Master GatewayはGeneral View由来のlocal batchをCoreへ直接送らない。
+- Operation IDはhop、retry、failover、reconnectを跨いで維持する。
+- 同じOperation IDを世界へ二重適用しない。
+- Master generation/epochを持ち、旧世代Masterの遅延出力を拒否する。
+- 同じ有効Operation集合はGateway数やMaster個体に関係なく決定論的なCore向け順序へ変換される。
 
-## 8. マスターゲートウェイ
+Gateway/Masterはprotocol規則に従って候補適用時刻を形成し、Coreが現在のSimulation Step、deadline、Master generation、順序規則等から最終的な有効適用Stepを確定する。
 
-### 8.1 選出
+## 10. Master Gateway
 
-マスターゲートウェイはコアが選出します。選出対象はコアが有効な接続先として認識しているゲートウェイで、選出方式はランダムです。
+Master GatewayはCoreが安全に役割を担えるGatewayから選出する。
 
-### 8.2 責務
+候補には、接続・応答、protocol互換、必要Capability、同期状態その他の安全条件が必要である。
 
-マスターゲートウェイは以下を担当します。
+- 選出方式はランダム。
+- Master選択結果そのものの再現性は標準要件としない。
+- 選択結果とgenerationは診断・監査可能にする。
+- Master個体が異なっても同じ有効Operation集合なら世界結果を変えない。
+- Master障害時はCoreが再選出する。
+- failoverはunfinished batch、ACK待ち、retry中Operationを欠落・重複なく引き継ぎ、live migrationに耐える設計とする。
+- split-brain、stale generation、duplicate applyを防止する。
 
-- 自身のローカル操作バッチ保持
-- 他ゲートウェイからのローカル操作バッチ受付
-- ゲートウェイ間の外部要求レベル競合調停
-- コア向け最終操作バッチ形成
-- コアへの一括リクエスト
-- コア結果の元ゲートウェイへの振り分け
+## 11. Gateway cache・公開遅延・再同期
 
-### 8.3 再選出
+- Gatewayは参照用cacheを持つが、正本ではない。
+- cache喪失・不整合は世界喪失ではなく、権威ある同期元から再構築する。
+- Gatewayは標準約1秒の論理的な公開遅延bufferを持ち、状態到着のjitter・順序揺らぎを吸収する。
+- cacheと公開遅延bufferは別責務とする。
+- reconnect時は古いcacheをそのまま信頼せず、基準Simulation Step/generation等を確認して再同期する。
+- 再同期中は不整合な状態列を通常状態として公開せず、接続利用者へ再同期中であることを通知する。
 
-マスターが利用不能になった場合、コアが新しいマスターをランダムに再選出します。
+Gatewayが0台でも、それ自体を理由にCoreのSimulation Step進行を止めない。Coreは受理済みOperationと内部eventを処理し続け、新規外部Operationだけ受けられない。Gateway復旧後に不在期間を巻き戻さない。
 
-切替時の重複・欠落防止のため、マスター選出世代、バッチ識別子、操作識別子、冪等性の契約が必要です。
+## 12. General View同期とDiver
 
-## 9. 競合調停の責務階層
+- ViewはGatewayが公開した確認済み状態を明示的な表示World Time/Stepと共に扱う。
+- 表示補間・短期予測を許容するが、presentation-onlyで非権威とする。
+- Diver操作は利用者からリアルタイムに感じられるようlocal prediction/correctionを許容し、Core確定状態へreconcileする。
+- reconnect中は同期状態を明示する。
 
-1. **各Gateway**: 自身に届いた利用者要求間のローカル競合を整理する。
-2. **Master Gateway**: Gateway間の操作バッチ同士の競合を整理する。
-3. **Simulation Core**: 正本世界状態とシミュレーションルール上の最終的な実行可否を判断する。
+Diverは参加時に新規専用住人を生成しない。
 
-ゲートウェイへシミュレーションルールを複製しません。
+- 世界に既に存在する通常住人へ紐付く。
+- 大まかな希望条件は指定できるが、条件に合う住人の割当てを保証しない。
+- 原則1住人につき1Diver。
+- 切断しても別Diverへ自動的に操作権を移さない。
+- reconnectしても同じDiver識別を使う。
+- 切断中も住人は世界内で行動し続け、Diverは不在中に優先させる行動方針を事前設定できる。
 
-## 10. 管理ビューの位置付け
+## 13. Admin View・Admin Operation
 
-管理ビューは一般ビューの上位ロールではなく、システム運用向けの別領域です。
+Admin ViewはGeneral Viewの上位ロールではなく、別の運用境界である。
 
-主な対象は、各コンポーネントのログ、稼働・診断ステータス、外部Config、運用コマンド、シミュレーションへの運用上の干渉です。
+- Admin View → Gateway → Core の経路を使用する。
+- Admin Operation固有の認証・認可、形式、対象、許可条件等の妥当性はGatewayが確認する。
+- CoreはUI上のAdmin roleを解釈しない。
+- Coreは全操作共通の世界状態不変条件・状態遷移整合性を維持する。
+- シミュレーションへ影響しないAdmin操作に限り最優先にしてよい。
+- 高影響Admin操作は追加確認・監査対象とする。
+- generic Undoは設けず、元へ戻す場合も新しいOperationとして実行する。
 
-管理ビュー由来のコア操作をマスターゲートウェイ経由へ統一するかは未確定です。
+Login要求は接続先GatewayからMaster Gatewayへproxyし、login処理はMasterで確定する。login以外のAdmin Core操作をMaster経由へ統一するかは未確定とする。
 
-## 11. ゲートウェイのキャッシュと遅延
+## 14. Auth / session
 
-各ゲートウェイは外部参照用状態をキャッシュし、コアへの高頻度参照を防ぎます。
+- General ViewとAdmin Viewのauth/authz domainを明確に分離する。
+- GatewayはOperation type、target、current role/session等から認可し、未認可OperationをCoreへ送らない。
+- role変更は明示的な有効時点を持つ。
+- privilege revoke後に古い権限で新規Operationを継続させない。
+- auth基盤障害時もauthorizationをbypassしない。
 
-また、基準値として約1秒分の遅延バッファを設け、30Hzで動作するコアの一時的な計算間隔・通信到着間隔の揺らぎを吸収します。30Hzと1秒はいずれも外部Configから変更可能です。
+具体的なtoken、IdP、session storage技術は未確定。
 
-マスター役割は主として書き込み経路の集約点であり、参照要求をすべてマスターへ集中させません。
+## 15. Config
 
-## 12. シミュレーションコアの実行条件
+- 調整可能な数値・しきい値・時間・件数等は外部Config化する。
+- 各componentが自身のConfig fileを所有し、他componentのConfig fileを直接参照しない。
+- 他componentへ必要な設定・状態は、Coreに近い責任componentがprotocolで配布する。
+- simulation-affecting Configとdisplay/ops-only Configを区別する。
+- runtime changeは安全な明示境界でatomicに適用し、simulation-affecting changeはSimulation Stepと履歴へ結び付ける。
+- startup Configに不整合があれば起動しない。
+- 古いConfigで新項目が欠ける場合はdefault値を適用し、その項目をConfig fileへ追加する。
 
-- 世界シミュレーターである。
-- 標準実装では1つのシミュレーションコアが世界状態の正本を保持・計算する。
-- 計算頻度の基準値は30Hz。
-- マルチスレッド実行を前提とする。
-- 使用可能スレッド数は最大16。
-- 実使用スレッド数はコアの外部Configから変更可能とする。
-- 同一Seed・同一設定・同一操作から必ず同一結果となる完全再現性を維持する。
+## 16. Addon境界
 
-標準実装では、シミュレーション可能範囲の拡大はまずコア内部の並列化、データ構造、アルゴリズム、キャッシュ効率、不要計算削減等によって行います。
+Addonはcomponent単位で設定可能とする。
 
-## 13. 複数コア構成の扱い
+- 標準protocolにはaddon固有機能のpayload、command、汎用拡張領域を載せない。
+- addonのinstall状況、identity、version、required/provided Capability等、接続安全性・互換性確認に必要なmeta情報は標準protocolで交換可能。
+- addon固有機能をcomponent間で通信する場合は、protocol拡張用framework addon等と追加protocolを使用する方向とする。
+- addon構成・依存・Capability・Configに不整合があれば、重大度に関係なく対象componentを起動しない。
+- 保存世界が依存するaddonに不整合がある場合も、明示migrationが完全成功しない限り起動しない。
 
-複数シミュレーションコアによって世界を分割計算する構成は、標準実装としては中止します。
+具体的addon API、package format、runtime loading方式等は未確定。
 
-将来、標準実装とは分離されたアドオンとして複数コア化を提供する可能性は残します。そのアドオンでは、標準実装の完全再現性要件を維持しない構成を許容する可能性があります。
+## 17. 保存・replay・復旧
 
-現時点では、Core間通信、Core間状態同期、領域分割、世界要素の担当移譲、Core境界に伴うGateway機能を標準仕様として定義・実装しません。
+標準デフォルトはSnapshot＋Operation/Event履歴＋高精度replayを前提とする。
 
-将来アドオンを設計する場合も、標準コンポーネントの責務へ暗黙に混在させず、独立した拡張仕様として扱います。
+- replayは動画ではなくCoreによる決定論的再計算。
+- saveは特定Simulation Stepに対応する論理的一貫状態として取得する。
+- 進行中saveを許容するが、負荷・整合性上必要なら安全境界で一時停止してよい。
+- crash recoveryで受理済み重要Operationを失わず、duplicate applyしない。
+- corrupt saveを部分的に読み込んで起動しない。
+- old formatは明示的・決定論的migrationを行い、変換不能なら起動拒否。
+- restore後も同じ世界のEntity ID、World Time、適用済みOperation、因果系列を維持する。
 
-## 14. 外部Config原則
+保存媒体、serialization、archive形式は未確定。
 
-運用・性能・シミュレーション挙動を調整する数値はソースコードへ固定せず、責任を持つ各コンポーネントの外部Configから変更可能にします。
+## 18. Full 3D世界
 
-マスター生存判定のタイムアウト、操作集約時間、件数、バッチサイズ等の調整値を設ける場合も外部Config化します。
+Simulation Coreの権威ある空間モデルはfull 3Dとする。Three.jsはGeneral Viewの描画技術であり、Coreの権威ある空間状態を置き換えない。
 
-## 15. データ所有権
+単一XYにつき単一Zしか持てないpure heightmapを権威ある地形表現にはしない。洞窟、坑道、地下室、切通し、overhang、同一XY上の複数surface/spaceを表現できる必要がある。
 
-- シミュレーション状態の正本: 標準構成では単一のシミュレーションコア
-- ゲートウェイキャッシュ: 参照用複製
-- ローカル操作集約データ: 各ゲートウェイの一時データ
-- マスター集約データ: マスターゲートウェイの一時データ
-- 一般ビュー・管理ビュー: UI上の一時状態
+具体的にVoxel、SDF、CSG、mesh、octree等のどれを採用するかは未確定。
 
-標準構成ではCore間の正本所有権移譲という概念を持ちません。
+## 19. 世界規模の詳細度
 
-## 16. 現時点で未確定の主な事項
+- デフォルトでは世界規模で可能な限り個体・物品・建物等の存在・永続ID・重要状態を保持する。
+- それらを全世界一律30Hzで詳細更新することは要求しない。
+- 遠隔・低重要度対象では更新頻度・計算詳細度を下げられる。
+- detail promotion/demotion、aggregation、archive、boundary causalityは決定論的に行う。
 
-- 世界を構成する具体的モデル
-- 各利用者ロールの具体的操作一覧
-- 「システムのバイタルに関係しないステータス」の定義
-- 「クリティカルな干渉」の定義
-- ダイバーと住民エージェントの対応方法
-- 認証・セッション・ロール管理方式
-- 操作集約単位
-- ローカル競合調停規則
-- Gateway間競合調停規則
-- マスター選出通知形式
-- マスター選出世代・epoch形式
-- マスター生存判定・再選出条件
-- マスター切替中の操作受付方針
-- バッチ最大件数・最大サイズ
-- 冪等性・再送・重複排除
-- 結果返却経路
-- 管理ビュー由来操作のマスター経由可否
-- コア内部の並列化・同期方式
-- コアからゲートウェイへの状態配信方式
-- 複数ゲートウェイ間のキャッシュ整合性
-- 実際の通信技術・シリアライズ形式
+## 20. 現時点で詳細設計へ残す主な事項
+
+- 具体的なnetwork transport・serialization形式
+- Operationのdeterministic ordering keyと候補適用時刻のwire表現
+- Core→Gateway状態配信方式
+- Master選出random algorithmとtimeout等の具体値
+- Login以外のAdmin操作をMaster経由へ統一するか
+- auth token / IdP / sessionの具体技術
+- Config file形式・配置・具体key
+- save storage・serialization・archive形式
+- RNG / Entity ID / state hashの具体algorithm
+- Simulation Stepのinteger type・epoch・date/time変換
+- General ViewのThree.js scene、LOD、shader、browser/device対応等
+- 各世界subsystemの具体data model・algorithm・精度
+
+これらは要件未決ではなく、確定した横断要件の上で以後の詳細設計により決定する事項である。
