@@ -1,136 +1,187 @@
-# ゲートウェイ間プロトコル設計書
+# Gateway間Protocol設計書
 
 ## 1. 所有者
 
-本プロトコルの所有者はゲートウェイです。
-
-ゲートウェイ同士はシステム上同じ階層に位置するため、ゲートウェイコンポーネント自身が本プロトコルの設計責任を持ちます。
+本protocolのownerはGatewayです。
 
 ## 2. 目的
 
-複数ゲートウェイ構成において、コアが選出したマスターゲートウェイへ各ゲートウェイの競合整理済み操作バッチを転送し、マスターがゲートウェイ間競合を整理できるようにする契約を定義します。
+複数Gateway構成で、Coreが選出したMaster GatewayへGeneral View由来local Operation batchを安全・決定論的に集約し、Master切替、retry、result routing、login proxyを成立させるための契約です。
 
-本プロトコルはシミュレーション状態の正本同期を目的としません。正本は常にシミュレーションコアにあります。
+本protocolはWorld Stateの正本同期を目的としません。正本はSimulation Coreにあります。
 
 ## 3. 基本原則
 
-- ゲートウェイ同士でコード、DLL、内部型、共有DTOライブラリを参照しない。
-- 通信契約は本設計書を基準とする。
-- 非マスターゲートウェイは一般ビュー由来の操作バッチをコアへ直接送信しない。
-- 非マスターゲートウェイはローカル競合整理済みバッチをマスターへ送信する。
-- マスターゲートウェイは複数ゲートウェイのバッチを集約し、ゲートウェイ間競合を調停する。
-- マスターゲートウェイは最終バッチをコアへ送信する。
-- シミュレーションルール上の最終妥当性はコアが判断する。
+- Gateway同士でcode、DLL、internal type、shared DTO libraryを共有しない。
+- 非Master GatewayはGeneral View由来local batchをCoreへ直接送らない。
+- local Gatewayはauthn/authzとlocal external-request conflict mediationを行う。
+- Masterは全Gatewayのlocal batchをdeterministic mergeし、cross-Gateway external-request conflictを整理する。
+- simulation rule/world-state validityはCoreの責務でありGatewayへ複製しない。
+- stable Operation ID、Batch ID、Master generationをretry/failover/reconnectで維持する。
+- network arrival raceやthread completion orderだけでmerge orderを決めない。
+- Master failoverはlive migrationに耐える。
 
-## 4. マスター識別
+## 4. Version / Capability
 
-マスターゲートウェイの選出責任はコアにあります。
+- Major.Minor versioningを行う。
+- Major mismatchはconnection reject。
+- same Majorではnewer Minorがbackward compatibilityを維持する。
+- connect時にrequired/optional Capabilityを交換する。
+- Master candidateとして必要なCapability不足をsilentに許容しない。
+- Master切替やaddon状態変更でeffective Capabilityが変わり得る場合、安全にrenegotiateまたはreconnectする。
 
-ゲートウェイ間通信では、現在どのゲートウェイがマスターであるか、およびその選出世代を識別できる必要があります。
+Standard protocol上のaddon情報はconnection safety / compatibility用meta informationに限定し、addon functional payload/commandを本protocolへ載せません。
 
-具体的なフィールド名は未確定ですが、少なくとも以下の概念が必要です。
+## 5. Master identity / generation
 
-- Gateway識別子
-- Master Gateway識別子
-- Master選出世代またはepoch
+Gateway間通信は少なくとも意味上、次を識別できる必要があります。
 
-古い世代のマスターを宛先とする転送を誤って継続しないため、世代識別を通信契約に含めます。
+- Gateway identity
+- current Master identity
+- Master generation / epoch
 
-## 5. 通信カテゴリ
+Coreがcurrent generationのauthorityです。
 
-### 5.1 ローカル操作バッチ転送
+- old generation宛てのmessageをcurrentとして扱わない。
+- stale Masterから遅れて到着したoutput/resultをblind acceptしない。
+- Master不明時にnon-Masterが独断でCoreへGeneral View batchをdirect submitしない。
 
-非マスターゲートウェイからマスターゲートウェイへ、ローカル競合整理済みの操作バッチを送信します。
+Exact identifier / generation formatは詳細設計で定義します。
 
-バッチには少なくとも以下を識別できる情報が必要です。
+## 6. Local Operation batch transfer
 
-- 送信元ゲートウェイ
-- マスター選出世代
-- ローカルバッチ識別子
-- バッチ内操作識別子
-- 操作対象
-- 操作種別
-- 操作内容
-- 必要な順序情報
-- 結果返却先を対応付ける情報
+Non-Master Gatewayはlocal authn/authz・aggregation・conflict mediation済みbatchをMasterへ送ります。
 
-### 5.2 バッチ受付結果
+Local batchには少なくとも意味上、次を追跡できる必要があります。
 
-マスターゲートウェイは、受信したローカルバッチについて受付・拒否・重複・世代不一致等を送信元へ返せる契約を持ちます。
+- source Gateway
+- target Master generation
+- local Batch ID
+- stable Operation ID
+- Operation type / target / content
+- deterministic orderingに必要なlogical information
+- candidate application time/Stepに必要なlogical information
+- result routing context
 
-### 5.3 操作結果返却
+正式fieldは詳細設計で定義します。
 
-コアから返された最終操作結果を、マスターゲートウェイから元の送信元ゲートウェイへ返却できる契約を持ちます。
+## 7. Batch receipt / acknowledgement
 
-送信元ゲートウェイはその結果を元の利用者要求へ対応付けます。
+Masterはlocal batchについて少なくとも次の状態を返却可能にします。
 
-## 6. ゲートウェイ間競合調停
+- accepted
+- rejected
+- duplicate
+- stale generation
+- incompatible capability/protocol
+- retryable temporary failure
 
-マスターゲートウェイは、自身を含む複数ゲートウェイのローカルバッチを集約し、外部要求レベルの競合を調停します。
+ACK lossでsenderがsame Batch/Operationをretryしてもworld outcomeを変えない契約にします。
 
-競合判定に利用する対象は、操作対象、操作種別、利用者権限、順序情報、優先度等です。
+## 8. Stable Operation ID / idempotency
 
-シミュレーション内部ルールや正本世界状態をゲートウェイへ複製して競合判定してはなりません。世界状態に依存する最終妥当性はコアへ委ねます。
+- Operation IDはconnected Gateway→Master→Core、retry、failover、reconnectを跨いで不変。
+- retry時にnew Operation IDを発行しない。
+- same Operation IDがworldへ二度影響しない。
+- Batch IDを用いてtransfer/ACKを追跡する。
+- Masterがduplicate local batchを受けてもduplicate Operationをnew requestとしてmergeしない。
 
-具体的な優先・統合・拒否規則は未確定です。
+Exact dedup retention/data structureは詳細設計で決定します。
 
-## 7. マスター切替
+## 9. Deterministic merge
 
-マスターが停止・切断・応答不能になった場合、コアが新しいマスターを選出します。
+Masterは自身を含む全Gatewayのlocal batchをdeterministicにmergeします。
 
-切替時には以下を考慮します。
+- same effective Operation setならGateway count、source arrival timing、network latency、thread order、Master identityによらずsame logical merged orderを得る。
+- Gateway-level conflict mediationはexternal-request levelに限定する。
+- authoritative World StateをGatewayへ複製しsimulation ruleを再実装しない。
+- simulation-affecting Admin Operationを「Adminだから」という理由だけでGeneral Operationに対し無条件最優先にしない。
 
-- 旧マスターへ送信済みだが受付結果がないローカルバッチ
-- 旧マスターが受理済みだがコア送信状況が不明なバッチ
-- 新マスターへの再送
-- 二重転送・二重適用
-- 古いマスター世代への遅延メッセージ
+Exact ordering key、priority relation、same-target merge/reject ruleは詳細設計で決定します。
 
-再送安全性のため、バッチ識別子、操作識別子、マスター世代、冪等性を扱う必要があります。
+## 10. Candidate application time/Step
 
-## 8. 障害時原則
+Gateway/Masterはprotocol ruleに従いcandidate application time/Stepに必要なlogical informationを扱います。
 
-- マスター不明時に非マスターが独断でコアへ直接送信しない。
-- マスター切替中の要求を破棄するか保持するかは今後定義する。
-- 一時的な通信失敗に対する再送方式は今後定義する。
-- 古いマスターからの結果を無条件に受理しない。
+- physical arrival wall-clockをauthoritative application timeにしない。
+- reception deadline / grace / late statusを必要に応じ追跡する。
+- final valid application StepをCoreが確定する前提を壊さない。
+- late Operationはpast finalized Stepをretroactive rewriteしない。
 
-## 9. バージョニングと接続互換性
+Wire fieldとdefer/reject semanticsの詳細はCore↔Gateway protocolと整合させて定義します。
 
-本プロトコルは `Major.Minor` の概念を持ちます。
+## 11. Master failover
 
-- ゲートウェイ同士のメジャーバージョンが一致する場合のみ接続を許可する。
-- メジャーバージョンが異なる場合は接続を拒否し、ローカル操作バッチ転送を開始しない。
-- 同一メジャー内では異なるマイナーバージョン間の接続を許可する。
-- 新しいマイナーバージョンは、同一メジャーの古いマイナーバージョンとの後方互換性を維持する。
-- マイナー更新で既存必須フィールドの削除、既存意味の非互換変更、既存型の非互換変更を行わない。
-- 後方互換性を維持できない変更はメジャーバージョン更新として扱う。
+Master利用不能時はCoreがnew Masterを選出します。
 
-マスターと非マスターのバージョン確認も同じ規則に従います。具体的なバージョン表現、接続時ハンドシェイク、メジャー不一致時のエラー形式、マイナー差による利用可能機能の判定方式は今後定義します。
+Gateway↔Gateway protocolは次のsafe handoffを可能にします。
 
-## 10. 禁止事項
+- old Masterへsent済み / ACK不明local batch
+- old Masterがaccepted済み / Core submit status不明batch
+- retrying Operation
+- result未返却Operation
+- stale old-generation message
 
-- マイナーバージョン更新で後方互換性を破壊すること
-- メジャーバージョンが異なるゲートウェイ間で通常通信を継続すること
-- メジャーバージョン不一致のゲートウェイからローカル操作バッチを受理すること
+New Masterへsame Operation ID/Batch contextで再送し、loss・duplicate applyを防ぎます。
 
-## 11. 今後定義する詳細
+Live migrationでも同じ意味論を維持します。
 
-- 物理通信方式
-- 接続確立方式
-- Gateway識別子形式
-- Master世代・epoch形式
-- ローカルバッチの正式フィールド
-- バッチ受付応答形式
-- 結果返却形式
-- 冪等性キー
-- 再送条件・回数・間隔
-- タイムアウト
-- マスター切替中のキュー保持
-- 順序保証
-- 圧縮
-- 認証・相互認証
-- ゲートウェイ間競合調停規則
-- バージョン表現・ハンドシェイク方式
-- メジャー不一致時のエラー形式
-- マイナー差による機能判定方式
+## 12. Failure detectionとの関係
+
+Master failure decisionのauthorityはCore側ですが、Gateway間通信は必要なhealth/response informationを提供可能にします。
+
+- heartbeat / response delay等の具体方式は未確定。
+- monitor interval、timeout、grace等の調整数値はConfig。
+- transient delayとfailureを区別する。
+
+## 13. Result routing
+
+Core resultをMasterからsource Gatewayへ返却し、source Gatewayがoriginating user/session requestへ対応付けられる契約を持ちます。
+
+Result routingでもOperation ID、Batch ID、generation等のcontextを利用可能にします。
+
+Stale generation resultをcurrent requestへ誤対応させないようにします。
+
+## 14. Login proxy
+
+Q241に従い、General View / Admin View等からconnected Gatewayへ届いたlogin requestはMaster Gatewayへproxyし、Masterでlogin処理を確定します。
+
+- non-Masterが独立に同じloginを最終確定しない。
+- Master change/live migrationでsession consistencyを壊さない。
+- old Master generationのauth stateをcurrent authorityとして誤使用しない。
+
+Credential/token/IdP/session storageの具体方式は未確定です。
+
+## 15. Addon meta information
+
+Connection safety/compatibility判定に必要なaddon identity/version/required Capability等のmeta情報はstandard protocolで交換可能です。
+
+Addon固有function dataをGateway間standard protocolへ載せません。必要な場合はaddon/framework側のadditional protocolの責務です。
+
+## 16. 禁止事項
+
+- non-MasterのGeneral View batch Core direct submission
+- Major mismatchでnormal batch transfer
+- stale generationをcurrentとして扱うこと
+- stable Operation IDなしのretry
+- duplicate Operationのnew request化
+- network arrival orderだけでdeterministic mergeを決めること
+- Gatewayへauthoritative simulation ruleを複製すること
+- old Master auth/result stateのsilent authority化
+- addon functional payloadをstandard protocolに埋め込むこと
+
+## 17. 詳細設計へ残す事項
+
+- physical transport / connection establishment
+- Gateway identity / generation representation
+- local batch wire schema
+- ACK/result message format
+- deterministic merge ordering key
+- retry timeout / interval / queue capacity
+- failover handoff messages
+- health signal
+- candidate Step / deadline fields
+- auth mutual verification
+- login proxy message/session handoff
+- Capability / addon meta schema
+- compression
