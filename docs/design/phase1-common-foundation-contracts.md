@@ -18,7 +18,7 @@ Phase 1 では次を確定対象とする。
 6. Snapshot / replay / recovery の一貫性境界
 7. Pause / resume / late Operation / retry / dedup の共通意味論
 
-P1-01〜P1-03 を完了し、現在の次作業は P1-04 Protocol 共通 envelope とする。
+P1-01〜P1-04 を完了し、現在の次作業は P1-05 persistence / replay / recovery とする。
 
 ## 2. 設計原則
 
@@ -30,6 +30,7 @@ P1-01〜P1-03 を完了し、現在の次作業は P1-04 Protocol 共通 envelop
 - protocol の意味契約は `docs/protocols` を正本とし、本書はその共通型・共通意味論を定義する。
 - deterministic encoding / hash / random の具体契約は `docs/design/phase1-determinism-ordering-random.md` を正本とする。
 - Config schema / classification / apply / history の具体契約は `docs/design/phase1-config-contract.md` を正本とする。
+- Protocol common envelope / compatibility / result semantics の具体契約は `docs/design/phase1-protocol-envelope.md` を正本とする。
 
 ## 3. Simulation Step / World Time
 
@@ -237,14 +238,36 @@ Phase 1 共通契約として次を固定する。
 - saved world の simulation Config/history を restore continuation の正本とし、current local file の差を過去へ silent override しない。
 - Config file 自体を component boundary 越しに共有しない。
 
-## 7. Pause / resume に対する時間契約
+## 7. Protocol 共通契約
+
+Protocol envelope / compatibility の詳細は `docs/design/phase1-protocol-envelope.md` を正本とする。
+
+Phase 1 共通契約として次を固定する。
+
+- 標準4境界は `mv.core-gateway` / `mv.gateway-gateway` / `mv.gateway-view` / `mv.gateway-admin-view` の ProtocolId を持つ。
+- normal message は `ProtocolEnvelopeV1` の共通意味を持つ。
+- protocol version は `uint16 major + uint16 minor`。
+- handshake は双方のsupported rangeから共通Majorの最大値、続いて共通Minor範囲の最大値を選ぶ。
+- CapabilityId は StableToken とし、required / provided set を相互検証する。
+- connection中のCapability changeはreconnectを基本とし、safe live renegotiationは明示Capabilityとbarrierがある場合だけ許可する。
+- `NegotiationGeneration := uint32` でnegotiated semanticsの世代を識別する。
+- MessageId / CorrelationId / CausationId / ComponentInstanceId は128-bit operational identityであり、world outcomeへ使用しない。
+- `WorldContextV1` で `world_id / basis_step / effective_step / master_generation / config_generation` を明示する。
+- `effective_step` はCore確定済みauthoritative Stepだけに使用し、candidate Stepとは分離する。
+- `OperationContextV1` でOperationId / immutable payload digest / BatchIdをtransport identityから分離する。
+- immutable Operation digestへMessageId、CorrelationId、BatchId、MasterGeneration、retry/routing metadata、candidate/final Stepを含めない。
+- common result status、stable error/result code、RetryAdviceを定義する。
+- ACKはprotocol hopの受理状態であり、authoritative world mutationのterminal successと同一視しない。
+- standard protocolのaddon情報はcompatibility metadataに限定し、addon functional payload用generic slotを設けない。
+
+## 8. Pause / resume に対する時間契約
 
 - Pause 開始時に current SimulationStep を固定する。
 - Pause 中に受信した simulation-affecting Operation を停止 Step へ即時適用しない。
 - resume 後、Core が protocol 規則に従い future valid Step を割り当てる。
 - Pause 時間の wall-clock 長さは replay 条件に含めない。
 
-## 8. persistence / replay への最低保存項目
+## 9. persistence / replay への最低保存項目
 
 Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保持する共通項目を固定する。
 
@@ -258,9 +281,9 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 - simulation-affecting Config generation / digest / history
 - enabled domain set / dependency declaration
 
-具体的 snapshot boundary、dedup retention、history compaction は後続作業で決定する。
+具体的 snapshot boundary、dedup retention、history compaction、terminal result retention は後続作業で決定する。
 
-## 9. Phase 1 作業分解
+## 10. Phase 1 作業分解
 
 ### P1-01 共通時間・識別子
 
@@ -307,30 +330,41 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 
 ### P1-04 Protocol 共通 envelope
 
-状態: 次に着手する。
+状態: 完了。
 
-- message envelope
-- protocol version / Capability negotiation
-- result / error
-- correlation / causation
-- generation / Step fields
-- ConfigGeneration / ConfigDigest integration
+正本: `docs/design/phase1-protocol-envelope.md`
+
+- `ProtocolEnvelopeV1`
+- ProtocolId / MessageType / ProtocolVersion
+- MessageId / CorrelationId / CausationId / ComponentInstanceId
+- WorldContextV1 / OperationContextV1
+- NegotiationGeneration
+- deterministic version selection handshake
+- required / provided Capability negotiation
+- addon compatibility metadata boundary
+- immutable Operation payload digest inclusion/exclusion
+- common result / error / retry taxonomy
+- ACK / terminal result separation
 
 ### P1-05 persistence / replay / recovery
+
+状態: 次に着手する。
 
 - consistent snapshot boundary
 - operation/event history boundary
 - recovery checkpoint
-- dedup retention
+- state publication continuity basis
+- terminal result persistence boundary
 - migration failure semantics
 
 ### P1-06 pause / late / retry / dedup 共通意味論
 
 - candidate/effective Step
 - deadline / grace / defer / reject
+- Pause queue assignment
 - retry
 - stale generation
-- duplicate handling
+- duplicate handling / dedup retention
 
 ### P1-07 横断整合性レビュー
 
@@ -338,17 +372,18 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 - `docs/protocols` へ確定契約を反映
 - Phase 2〜4 の blocker 0 件確認
 
-## 10. 未決定事項
+## 11. 未決定事項
 
-P1-03 完了時点の未決定事項は次の通り。
+P1-04 完了時点の未決定事項は次の通り。
 
-- common protocol envelope
-- protocol version / Capability の concrete wire representation
-- protocol field ごとの immutable payload digest inclusion/exclusion
-- Config error/result の wire mapping
-- snapshot/replay consistency boundary
+- snapshot / replay consistency boundary
+- operation/event history continuation point
+- protocol-visible state continuity sequence/token
+- persisted terminal result boundary
 - authoritative state diagnostic hash の slice/tree granularity
 - dedup retention window
+- candidate Step / deadline / grace concrete field
 - Pause queue / late Operation の具体規則
+- Batch ACK / partial completion / retry state machine
 
 これらは Phase 1 内の後続作業で解消し、Phase 1 完了時には横断 blocker を 0 件とする。
