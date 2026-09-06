@@ -29,6 +29,17 @@ Status: Complete
 
 Phase 2のcomponent間ownership、protocol mapping、Phase 3開始条件、completion判定は `phase2-cross-component-review.md` を正本とする。
 
+## Phase 3: 世界シミュレーションDomain設計
+
+Status: In Progress
+
+- `phase3-world-domain-design.md`
+- `phase3-domain-common-contract.md`
+
+Phase 3はIssue #15で管理し、Phase 1/2の契約を前提としてSimulation Core内のdomain state、event、更新依存、detail level、aggregation/promotion/demotion、cross-domain因果、Q001〜Q279 traceabilityを具体化する。
+
+Phase 3全体の作業分解と共通方針は `phase3-world-domain-design.md`、全domainが従うstate ownership・event/intent・detail transitionの共通契約は `phase3-domain-common-contract.md` を参照する。
+
 ## 読み方
 
 1. `docs/requirements` の確定要件を最上位入力とする。
