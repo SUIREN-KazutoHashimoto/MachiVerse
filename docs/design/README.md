@@ -58,10 +58,20 @@ Status: In Progress
 - `phase4-core-data-structures.md`
 - `phase4-domain-state-registry.md`
 - `phase4-protocol-schema.md`
+- `phase4-auth-session-protocol.md`
+- `phase4-protocol-payload-catalog.md`
+- `phase4-protocol-completion-review.md`
+- `phase4-config-specification.md`
+- `phase4-persistence-specification.md`
 
 Phase 4はIssue #16で管理し、Phase 1〜3で確定した意味契約を、実装者が追加の仕様解釈をほぼ必要としないconcrete data structure / schema / Config / persistence / algorithm / budget / observability / test / work breakdownへ落とし込む。
 
-Phase 4全体の作業分解と設計優先順位は `phase4-implementation-ready-design.md` を正本とする。P4-01の共通value type、state partition layout、candidate state、index contractは `phase4-core-data-structures.md`、Phase 3全97 authoritative partitionのstable registry/owner/schema/record layoutは `phase4-domain-state-registry.md` を正本とする。P4-02のwire serialization、transport、envelope field number、message registry、error catalogは `phase4-protocol-schema.md` で具体化する。
+Phase 4全体の作業分解と設計優先順位は `phase4-implementation-ready-design.md` を正本とする。
+
+- P4-01の共通value type、state partition layout、candidate state、index contractは `phase4-core-data-structures.md`、Phase 3全97 authoritative partitionのstable registry/owner/schema/record layoutは `phase4-domain-state-registry.md` を正本とする。
+- P4-02のwire serialization、transport、envelope field number、auth/session、message/payload registry、error catalogは `phase4-protocol-schema.md`、`phase4-auth-session-protocol.md`、`phase4-protocol-payload-catalog.md` で具体化し、完了判定は `phase4-protocol-completion-review.md` を正本とする。
+- P4-03のcomponent Config key/type/default/range/impact/mutabilityは `phase4-config-specification.md` で具体化する。
+- P4-04のphysical persistence layout、history DB、snapshot chunk、recovery/migrationは `phase4-persistence-specification.md` で具体化する。
 
 ## 読み方
 
