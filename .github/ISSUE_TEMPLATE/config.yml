@@ -1,2 +1,8 @@
-blank_issues_enabled: true
-contact_links: []
+blank_issues_enabled: false
+contact_links:
+  - name: 質問・アイデア・設計相談
+    url: https://github.com/SUIREN-KazutoHashimoto/MachiVerse/discussions
+    about: 実装対象として整理される前の相談やオープンな議論は GitHub Discussions を利用してください。
+  - name: セキュリティ報告
+    url: https://github.com/SUIREN-KazutoHashimoto/MachiVerse/security/policy
+    about: 脆弱性や公開すると危険な情報を含む報告は SECURITY.md の手順に従ってください。
