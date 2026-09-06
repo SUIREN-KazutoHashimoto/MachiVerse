@@ -3,21 +3,21 @@ body:
   - type: markdown
     attributes:
       value: |
-        MachiVerseの使い方、設計意図、開発方針などに関する質問用です。
-        不具合として再現可能な問題はIssueの不具合報告を利用してください。
+        MachiVerseの使い方、開発方法、既存の設計や仕様などについて質問する場所です。
+        再現可能な不具合を発見した場合は、DiscussionではなくIssueの不具合報告を利用してください。
 
   - type: textarea
     id: question
     attributes:
       label: 質問
-      description: 知りたいことを具体的に記載してください。
+      description: 知りたいこと、確認したいことを具体的に記載してください。
     validations:
       required: true
 
   - type: textarea
     id: context
     attributes:
-      label: 背景・試したこと
+      label: 背景・確認したこと
       description: 質問に至った背景、確認済みの文書、試したことなどがあれば記載してください。
 
   - type: dropdown
