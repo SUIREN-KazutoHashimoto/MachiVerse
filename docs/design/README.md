@@ -52,26 +52,81 @@ Phase 3全体の作業分解と共通方針は `phase3-world-domain-design.md`�
 
 ## Phase 4: 実装直前設計
 
-Status: In Progress
+Status: Complete
+
+### 全体 / P4-01 Data structure
 
 - `phase4-implementation-ready-design.md`
 - `phase4-core-data-structures.md`
 - `phase4-domain-state-registry.md`
+
+### P4-02 Protocol
+
 - `phase4-protocol-schema.md`
 - `phase4-auth-session-protocol.md`
 - `phase4-protocol-payload-catalog.md`
 - `phase4-protocol-completion-review.md`
+
+### P4-03 Config
+
 - `phase4-config-specification.md`
+- `phase4-config-addendum.md`
+- `phase4-config-standard-examples.md`
+- `phase4-config-completion-review.md`
+
+### P4-04 Persistence
+
 - `phase4-persistence-specification.md`
+- `phase4-persistence-record-catalog.md`
+- `phase4-persistence-completion-review.md`
 
-Phase 4はIssue #16で管理し、Phase 1〜3で確定した意味契約を、実装者が追加の仕様解釈をほぼ必要としないconcrete data structure / schema / Config / persistence / algorithm / budget / observability / test / work breakdownへ落とし込む。
+### P4-05 Algorithm / domain schema
 
-Phase 4全体の作業分解と設計優先順位は `phase4-implementation-ready-design.md` を正本とする。
+- `phase4-algorithm-determinism.md`
+- `phase4-domain-payload-schema.md`
+- `phase4-domain-operation-event-intent-catalog.md`
+- `phase4-algorithm-completion-review.md`
 
-- P4-01の共通value type、state partition layout、candidate state、index contractは `phase4-core-data-structures.md`、Phase 3全97 authoritative partitionのstable registry/owner/schema/record layoutは `phase4-domain-state-registry.md` を正本とする。
-- P4-02のwire serialization、transport、envelope field number、auth/session、message/payload registry、error catalogは `phase4-protocol-schema.md`、`phase4-auth-session-protocol.md`、`phase4-protocol-payload-catalog.md` で具体化し、完了判定は `phase4-protocol-completion-review.md` を正本とする。
-- P4-03のcomponent Config key/type/default/range/impact/mutabilityは `phase4-config-specification.md` で具体化する。
-- P4-04のphysical persistence layout、history DB、snapshot chunk、recovery/migrationは `phase4-persistence-specification.md` で具体化する。
+### P4-06 Performance
+
+- `phase4-performance-budget.md`
+- `phase4-performance-benchmark-profile.md`
+- `phase4-performance-completion-review.md`
+
+### P4-07 Observability / audit
+
+- `phase4-observability-audit.md`
+- `phase4-observability-completion-review.md`
+
+### P4-08 Test / acceptance
+
+- `phase4-test-acceptance.md`
+
+### P4-09 Platform / implementation breakdown / completion
+
+- `phase4-platform-runtime-profile.md`
+- `phase4-implementation-work-breakdown.md`
+- `phase4-completion-review.md`
+
+Phase 4はIssue #16で管理し、Phase 1〜3の意味契約を、実装者が追加のarchitecture判断をほぼ必要としないdata structure / protocol / Config / persistence / algorithm / performance / observability / test / platform / implementation work packageへ具体化した。
+
+Phase 4全体方針とP4-01〜P4-09状態は `phase4-implementation-ready-design.md`、Phase 4 completion判定と実装移行条件は `phase4-completion-review.md` を正本とする。
+
+主要な確定値:
+
+- 8 domain / 97 authoritative partition
+- Config schema 4 component / 136 standard fields
+- OperationKind 69 / EventKind 129 / IntentKind 63 / CrossDomainTransactionKind 17
+- Protocol Buffers + gRPC / binary WebSocket
+- SQLite WAL/FULL + 103 required Snapshot sections
+- fixed-point/integer deterministic algorithm profile
+- 30Hz reference performance profile
+- OpenTelemetry-compatible observability + append-only audit
+- P4-08 release acceptance suite
+- .NET 10 LTS / C# 14 / Blazor WebAssembly / Three.js WebGLRenderer profile
+- 38 implementation work packages / dependency DAG
+
+Unresolved detailed-design blocker: 0件。
 
 ## 読み方
 
@@ -79,6 +134,6 @@ Phase 4全体の作業分解と設計優先順位は `phase4-implementation-read
 2. `docs/architecture` でcomponent/world領域の責務を確認する。
 3. `docs/protocols` でcomponent間通信契約を確認する。
 4. 本directoryのPhase文書でcross-cutting/internal detailを確認する。
-5. 同一Phase内で古い未決定記述とfinal reviewが競合する場合、後続のfinal reviewを優先する。
+5. 同一Phase内で古い未決定記述とcompletion/final reviewが競合する場合、completion/final reviewを優先する。
 
-未承認の実装技術は詳細設計文書から暗黙に固定せず、責務・意味論・安全境界とimplementation choiceを分離する。
+実装時にPhase 4契約の変更が必要になった場合、implementation内でsilent変更せずdesign amendment、schema/version、compatibility/migration、P4-08 testを合わせて更新する。
