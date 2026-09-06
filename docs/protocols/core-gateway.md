@@ -1,200 +1,236 @@
-# シミュレーションコア・ゲートウェイ間プロトコル設計書
+# Simulation Core・Gateway間Protocol設計書
 
 ## 1. 所有者
 
-本プロトコルの所有者はシミュレーションコアです。
+本protocolのownerはSimulation Coreです。
 
 ## 2. 目的
 
-本プロトコルは、シミュレーションコアと複数ゲートウェイ間で以下を行うための契約を定義します。
+本protocolは、単一Simulation Coreと複数Gatewayの間で、少なくとも次を成立させる契約です。
 
-- 外部参照用シミュレーション状態の配信
-- ゲートウェイキャッシュ更新に必要な情報の提供
-- 約1秒の遅延バッファを構成するための時間順序情報の提供
-- マスターゲートウェイの選出・変更通知
-- マスターゲートウェイからの一般ビュー由来最終操作バッチの受理
-- 管理ビュー由来の運用操作の受理
-- 各操作結果の返却
-- コアの公開可能な実行状態・診断状態の通知
+- 外部公開用stateの同期
+- Gateway cache / logical publication bufferに必要なSimulation Step基準の提供
+- Gateway接続状態・同期状態の把握
+- Master Gatewayの選出・generation通知
+- MasterからのGeneral View由来final Operation batch受理
+- Admin View由来Core Operationの受理
+- Operation resultの返却
+- retry / dedup / idempotency
+- protocol version / Capability negotiation
+- Coreの公開可能なhealth / diagnostic stateの通知
 
-## 3. 設計原則
+Concrete wire schema、transport、serializationは本段階では固定しません。
 
-- ゲートウェイとコアは互いのコード、DLL、内部型へ依存しない。
-- 双方は本プロトコル設計書を契約として実装する。
-- コア内部の可変状態を直接公開しない。
-- 1つのコアに複数ゲートウェイが接続することを前提とする。
-- コアは30Hzを基準として計算する。
-- ゲートウェイは約1秒の遅延バッファで短期的な時間揺らぎを吸収する。
-- 一般ビュー由来操作は各ゲートウェイでローカル集約・競合整理される。
-- 複数ゲートウェイ構成では、非マスターゲートウェイは一般ビュー由来操作バッチをコアへ直接送信しない。
-- コアへの一般ビュー由来書き込み要求は、コアが選出したマスターゲートウェイから受理する。
-- マスターがゲートウェイ間競合を整理しても、コアは世界状態・シミュレーションルール上の最終妥当性を判断する。
+## 3. 基本原則
 
-## 4. 時間・順序に関する契約
+- CoreとGatewayは互いのcode、DLL、internal type、shared DTO libraryへ依存しない。
+- Coreだけがauthoritative World Stateを所有する。
+- Gateway cacheは非権威な派生state。
+- 権威あるWorld Timeは整数Simulation Step。
+- Core standard frequencyは30Hzだが、Gateway state publication frequencyと同一ではない。
+- General View由来Core writeはcurrent Master Gatewayからfinal batchとして受理する。
+- Gateway/Masterのexternal-request conflict mediationと、Coreのworld-state/simulation-rule validityを分離する。
+- Admin Operation固有のauth/permission/format/target/allowed-condition validationはGateway責務。Coreはcommon world-state invariantを維持する。
+- network arrival timing、Gateway数、Master identity、retry countをworld outcomeの暗黙入力にしない。
 
-### 4.1 コア計算頻度
+## 4. Version / Capability
 
-シミュレーションコアの計算頻度の基準値は30Hzです。この値は外部Configから変更可能です。
+- Protocol versionはMajor.Minor。
+- Major mismatchはconnection reject。
+- same Majorではnewer Minorがbackward compatibilityを維持する。
+- connect時にsupported / required Capabilityを交換する。
+- required Capability不足はsilentに続行しない。
+- Major mismatch時はreject reason、双方version、必要なupdate directionをdiagnostic可能にする。
 
-### 4.2 ゲートウェイ遅延
+Addonについてstandard protocolで交換できるのは、connection safety / compatibility判定に必要なmeta informationに限定します。Addon固有function payloadやcommandを本protocolへ載せません。
 
-ゲートウェイはコアから受信した状態を即時公開せず、基準値として約1秒分の遅延バッファを持ちます。この値も外部Configから変更可能です。
+## 5. State synchronization
 
-### 4.3 時間順序情報
+CoreはGatewayが外部公開stateを構築できるよう、authoritative-derived stateを提供します。
 
-ゲートウェイが時系列を正しく管理できるよう、状態配信には時間的位置を判別できる情報が必要です。
+State communicationには少なくとも意味上、次を判別できる必要があります。
 
-候補として、シミュレーションステップ番号、シミュレーション時刻、状態生成時刻、シーケンス番号等があります。正式フィールドは今後定義します。
+- どのSimulation Stepをbasisとするstateか
+- full / delta等を採用する場合の適用basis
+- reconnect/resyncでcontinuityを検証するための情報
+- 必要なprotocol / Capability context
 
-## 5. マスターゲートウェイ選出
+Gatewayはold cacheをblind trustせず、reconnect時にCoreまたはprotocol上のauthoritative sync basisから再同期します。
 
-### 5.1 選出責任
+具体的なPush/Pull、full/delta/snapshot、sequence fieldは詳細設計で決定します。
 
-マスターゲートウェイの選出責任はシミュレーションコアが持ちます。
+## 6. Gateway接続とMaster eligibility
 
-コアは、その時点で有効な接続先として認識しているゲートウェイから1台をランダムに選出します。
+CoreはGateway connectionを管理し、Master候補として安全かを判断できる情報を持ちます。
 
-### 5.2 選出通知
+Master candidateは単なるconnected状態だけでなく、少なくとも次の意味を満たす必要があります。
 
-コアはゲートウェイ群が現在のマスターを識別できるよう、選出結果を通知します。
+- responsive
+- compatible protocol Major/Minor
+- required Capability
+- Masterとして必要なsync state
+- その他、安全にfinal batchを形成・送信できる状態
 
-マスター切替時の古い通知や遅延メッセージを区別できるよう、選出世代またはepochに相当する概念をプロトコルへ持たせます。正式フィールドは今後定義します。
+Exact health signal、threshold、timeoutはConfigと詳細protocolで定義します。
 
-### 5.3 再選出
+## 7. Master selection / generation
 
-現在のマスターが停止・切断・応答不能等で利用不能になった場合、コアが新しいマスターをランダムに再選出します。
+- Master Gatewayのselection authorityはCore。
+- Safe candidateからrandomに1台を選出する。
+- Master selection結果そのものをWorld Seedから再現する標準要件はない。
+- 選択されたMaster identity、generation/epoch、切替理由等をdiagnostic可能にする。
+- current generationをCoreがauthoritativeに決定する。
+- stale old-generation final batchをcurrent outputとして受理しない。
+- Master identityがworld outcomeへ影響してはならない。
 
-生存判定方式、タイムアウト、再選出タイミングは今後定義します。調整可能な数値は外部Config化します。
+Concrete election message、random algorithm、Gateway identifier、generation formatは詳細設計で決定します。
 
-## 6. 通信カテゴリ
+## 8. General View由来final Operation batch
 
-### 6.1 状態配信
+General View Operationは各Gatewayでlocal authn/authz・aggregation・external-request conflict mediationを受け、Masterでdeterministic merge/cross-Gateway mediationされたfinal batchとしてCoreへ送られます。
 
-コアから各ゲートウェイへ外部公開可能な状態を提供します。
+Final batchには少なくとも意味上、次を追跡できる必要があります。
 
-マスターか非マスターかにかかわらず、参照用状態配信の対象になれます。各ゲートウェイは受信状態を自身のキャッシュと遅延バッファへ反映します。
+- Master generation
+- Batch ID
+- Operation ID
+- source Gateway / result routing context
+- Operation type / target / content
+- deterministic orderingに必要なlogical information
+- candidate application time/Stepに必要なlogical information
 
-### 6.2 マスター選出・変更通知
+正式fieldは詳細設計で定義します。
 
-コアからゲートウェイ群へ、現在のマスターゲートウェイを識別する情報を通知します。
+## 9. Operation ID / Batch ID / idempotency
 
-### 6.3 一般ビュー由来最終操作バッチ
+- Operation IDはGateway hop、Master transfer、retry、failover、reconnectを跨いでstable。
+- same Operation IDがworldへ二度影響しない。
+- retry時にnew Operationとして再採番しない。
+- Batch IDとMaster generationでACK loss、retry、old-generation outputを追跡可能にする。
+- duplicate requestに対しworld mutationをrepeatしない意味論を持つ。
 
-各ゲートウェイで形成されたローカル操作バッチは、ゲートウェイ間プロトコルを通じてマスターゲートウェイへ集約されます。
+Dedup retention period、storage/data structure、Batch ID format等は詳細設計で決定します。
 
-マスターゲートウェイはゲートウェイ間の外部要求レベルの競合を整理し、コア向け最終操作バッチを形成します。
+## 10. Deterministic ordering
 
-コアは一般ビュー由来の書き込みについて、現在のマスターゲートウェイから送信された最終操作バッチを受理します。
+Coreへ渡されるfinal batch orderは、network raceやthread completion orderだけで決めません。
 
-最終操作バッチには少なくとも以下を識別できる情報が必要です。
+Same effective Operation setでは、Gateway数、Master identity、network timing等が異なってもsame logical Core orderになる必要があります。
 
-- マスターゲートウェイ識別情報
-- マスター選出世代
-- 最終バッチ識別情報
-- 元ゲートウェイを識別する情報
-- 各操作識別情報
-- 操作種別
-- 操作対象
-- 操作内容
-- 必要な順序情報
-- 結果を元ゲートウェイ・元要求へ対応付けるための情報
+具体的ordering key、same-Step tie-break ruleは詳細設計で決定します。
 
-正式フィールドは今後定義します。
+## 11. Candidate / final application Step
 
-### 6.4 コアでの最終妥当性判定
+Q203/Q223/Q224/Q276に従います。
 
-コアは受理した最終操作バッチの各操作について、現在の世界状態とシミュレーションルール上の実行可否を判断します。
+- Gateway/Masterはprotocol ruleに従いcandidate application time/Stepに必要な情報を形成する。
+- Coreがcurrent Simulation Step、deadline、Master generation、deterministic order等からfinal valid application Stepを確定する。
+- network arrival wall-clockをauthoritative application timeにしない。
+- late Operationでpast finalized Stepをretroactive rewriteしない。
+- late Operationはdefined ruleに従いfuture valid Stepへdeferまたはrejectする。
 
-マスターゲートウェイで競合整理済みであっても、コアは操作を拒否できます。
+Exact candidate field、deadline/grace field、reject/defer codeは詳細設計で定義します。
 
-バッチを全件一括で成功・失敗させるか、操作単位で部分成功を許可するかは未確定です。
+## 12. Core側のGeneral Operation validity
 
-### 6.5 管理ビュー由来運用操作
+Coreはfinal batchをauthoritative stateへ適用する前に、common world/simulation semanticsとして少なくとも次を確認できます。
 
-管理ビュー由来のコア運用操作をマスターゲートウェイ経由へ統一するか、管理用の別経路を許可するかは未確定です。
+- target existence / validity
+- current stateからのstate transition成立性
+- common world-state invariant
+- simulation rule
+- deterministic apply order
 
-一般ビュー由来の最終操作バッチとは意味・権限体系を分離します。
+Masterで外部要求競合が整理済みでも、authoritative world上成立しないOperationはreject可能です。
 
-### 6.6 操作結果
+Batch全件atomicかpartial successを許可するかは詳細設計で決定します。
 
-コアは最終操作バッチの処理結果をマスターゲートウェイへ返します。
+## 13. Admin Operation
 
-マスターゲートウェイが元ゲートウェイへ、元ゲートウェイが元の利用者要求へ結果を対応付けられる契約が必要です。
+Admin View由来Core OperationもGatewayから本protocolを通じてCoreへ到達します。
 
-## 7. 責任分担
+責務は次のように分離します。
 
-### 通常ゲートウェイ
+- Gateway: Admin authn/authz、operation format、target、Admin operationとしてのallowed condition等。
+- Core: UI roleを解釈せず、全Operation共通のworld-state invariant / state-transition consistencyを維持。
 
-- 利用者認証・認可
-- ローカル操作集約
-- ローカル競合調停
-- ローカル操作バッチ形成
-- マスターへのバッチ転送
-- 元利用者への結果返却
+Gateway-approved Admin Operationであってもcommon invariantを破壊するstate transitionをCoreが無条件適用してはなりません。
 
-### マスターゲートウェイ
+Login処理はGateway↔Gateway側でMasterへproxyして確定します。Login以外のAdmin Core OperationをMaster経由へ統一するかは未確定です。
 
-- 自身を含む全ゲートウェイのローカルバッチ受付
-- ゲートウェイ間競合調停
-- コア向け最終操作バッチ形成
-- コアへの一括送信
-- コア結果の元ゲートウェイへの振り分け
+## 14. Operation result
 
-### シミュレーションコア
+CoreはOperation/Batch resultを、元requestへ対応付け可能なidentity contextと共に返却できる契約を持ちます。
 
-- マスターゲートウェイの選出・再選出
-- 現在のマスター識別情報の通知
-- 現在のマスターからの最終操作バッチ受理
-- 世界状態・シミュレーションルール上の最終妥当性判定
-- 正本状態の変更
-- 操作結果の確定
+Resultには成功/拒否だけでなく、必要に応じreason、final application Step、duplicate/stale generation等を識別できる意味が必要です。
 
-## 8. マスター切替時の整合性
+具体message/codeは詳細設計で定義します。
 
-マスター切替では、旧マスターへ送信済みのバッチと新マスターへ再送されたバッチが二重適用されないことが重要です。
+## 15. Master failover / live migration
 
-そのため、少なくとも以下の識別概念が必要です。
+- CoreはMaster failureを検出した場合safe candidateからnew Masterを選出する。
+- unfinished batch、ACK-waiting Operation、retrying Operationをloss/duplicateなくnew generationへ引き継げる意味論を持つ。
+- live migrationに耐える。
+- old generation outputをrejectする。
+- failover timingそのものがworld outcomeを変えない。
 
-- マスター選出世代
-- ローカルバッチ識別子
-- 最終バッチ識別子
-- 操作識別子
+Exact handoff message、heartbeat、timeout等は詳細設計で定義します。
 
-冪等性、重複排除、再送、結果再取得の具体方式は今後定義します。
+## 16. Gateway reconnect / resync
 
-## 9. バージョニングと接続互換性
+- reconnect時にold cacheをauthoritativeとして扱わない。
+- basis Simulation Step / generation等を確認してresyncする。
+- missing/reorder/sync mismatch時にrefetch/rebuild可能にする。
+- Gatewayはresync中のinconsistent state sequenceをnormal publishしてはならない。
 
-本プロトコルは `Major.Minor` の概念を持ちます。
+Userへのresync表示はGateway↔View protocolの責務です。
 
-- メジャーバージョンが一致する場合のみ接続を許可する。
-- メジャーバージョンが異なる場合は接続を拒否する。
-- 同一メジャー内ではマイナーバージョン差を許可し、新しいマイナーバージョンは古いマイナーバージョンとの後方互換性を維持する。
-- マイナー更新で既存必須フィールドの削除、既存意味の非互換変更、既存型の非互換変更を行わない。
-- 後方互換性を維持できない変更はメジャーバージョン更新として扱う。
+## 17. Gatewayが0台の場合
 
-接続確立時に少なくともメジャーバージョンを相互確認できる必要があります。具体的なバージョン表現、ハンドシェイク、メジャー不一致時のエラー形式、マイナー差による利用可能機能の判定方法は今後定義します。
+Gateway connectionが0台でもCoreのSimulation Stepはそれ自体を理由に停止しません。
 
-## 10. 今後定義する詳細
+Protocol上、新規external requestが存在しないだけであり、Core internal eventと既にaccepted済みOperationは通常規則に従って進行します。
 
-- 物理通信方式
-- 接続方向
-- 状態配信方式・頻度
-- マスター選出通知形式
-- Gateway識別子形式
-- Master世代・epoch形式
-- ランダム選出方式
-- マスター生存判定・再選出条件
-- 最終操作バッチの正式フィールド
-- 操作集約単位
-- ゲートウェイ間競合調停規則
-- バッチ最大件数・最大サイズ
-- バッチの全件成功・部分成功方針
-- 冪等性・重複排除・再送
-- 結果返却経路
-- 管理ビュー由来操作のマスター経由可否
-- タイムアウト
-- 切断・再接続
-- 圧縮
-- バージョン表現・ハンドシェイク方式
-- メジャー不一致時のエラー形式
-- マイナー差による機能判定方式
+Gateway復旧後にabsence期間をrewindしません。
+
+## 18. Diagnostic / operational state
+
+Gatewayが外部運用へ必要な範囲で、次のようなCore状態をprotocol化可能にします。
+
+- current Simulation Step
+- real-time target lag等のhealth
+- current Master / generation
+- save / recovery state
+- compatibility / Capability error
+- relevant Config validation error
+
+具体metrics/schemaはobservability詳細設計で定義します。
+
+## 19. 禁止事項
+
+- non-MasterからGeneral View final batchをnormal writeとして受理すること
+- stale Master generationをcurrentとして受理すること
+- stable Operation IDなしのretry
+- duplicate Operationのdouble apply
+- network arrival orderのauthoritative ordering化
+- Gateway cacheをauthoritative stateとして扱う契約
+- Admin UI roleをCore authzへ持ち込むこと
+- standard protocolへaddon functional payloadを載せること
+- Major mismatchでnormal communicationを継続すること
+
+## 20. 詳細設計へ残す事項
+
+- physical transport / connection direction
+- serialization / compression
+- handshake / Capability schema
+- state sync method and fields
+- Gateway identifier / Master generation representation
+- Master health/election messages and algorithm
+- final batch wire schema
+- deterministic ordering key
+- candidate/final Step fields
+- Batch atomicity / partial success
+- dedup retention and storage
+- result message/error codes
+- Admin login以外のMaster path
+- timeout / reconnect / resync message set

@@ -1,210 +1,210 @@
-# ビュー設計
+# General View設計
 
 ## 1. 目的
 
-ビューは、MachiVerse にアクセスする一般利用者がシミュレーションを閲覧し、利用者ロールに応じて許可された範囲でシミュレーションへ参加・干渉するための利用者向け領域です。
+General Viewは、MachiVerseの一般利用者がworldを閲覧し、roleに応じて参加・操作するためのWeb applicationです。
 
-一般ビューはシミュレーションコアへ直接接続せず、参照・操作のすべてをゲートウェイ経由で行います。
+- Simulation Coreへ直接接続しない。
+- 状態参照、login、Operation送信、reconnectはGatewayを通じて行う。
+- full-3D world renderingにはThree.jsを使用する。
+- Three.jsはpresentation technologyであり、authoritative World Stateやworld physicsを所有しない。
 
-## 2. 利用者ロール
+## 2. 利用者role
 
-一般ビューでは、システムへアクセスする利用者を以下の4段階に分けます。
+| Role | Simulation interference | 参照範囲 |
+|---|---|---|
+| Diver | 通常residentと同程度 | participantとして許可された情報 |
+| Spectator | 不可 | system vitalに関係しない範囲の公開status |
+| Moderator | simulation / lower userへ限定的に可能、critical operationは禁止 | Spectator相当 |
+| Administrator | General Viewで定義されたsimulation interference | General View向け全公開status |
 
-| ロール | シミュレーションへの干渉 | 参照可能範囲 | 補足 |
-|---|---|---|---|
-| ダイバー | シミュレーション住民と同程度の干渉が可能 | 利用者として必要な公開情報 | シミュレーションの住民として参加できる |
-| スペクテイター | 一切不可 | システムのバイタルに関係しない程度のステータス | 閲覧専用 |
-| モデレーター | シミュレーションおよび下位利用者へ干渉可能。ただしクリティカルな干渉は禁止 | スペクテイターと同等 | 利用者・シミュレーション双方への限定的な介入権限を持つ |
-| アドミニストレーター | シミュレーションへ完全に干渉可能 | すべてのステータス | 一般ビュー上の最上位利用者権限 |
+General View AdministratorとAdmin View operatorは別auth/authz domainです。
 
-ここでいう「アドミニストレーター」は一般ビューの利用者ロールであり、管理ビューそのものを意味しません。
+Exact permission matrix、public status set、critical operation定義は詳細設計で決定します。
 
-具体的な操作一覧、ステータス分類、「クリティカル」の判定基準、ロール変更権限などは今後定義します。
+## 3. Diver体験の上位原則
 
-## 3. ダイバー体験の上位原則
+Diverには「自分がこのworldを構成する一人の住人である」と感じられる体験を最大化します。
 
-MachiVerse の利用者体験を要件定義・設計するときは、利用者ロール「ダイバー」が **「自分はこの世界を構成する一人の住人である」** と感じられる体験を最大化することを上位原則とします。
+これはVR/HMD等の特定技術を必須にする意味ではありません。Diverをworld外部の管理者として特別扱いするのではなく、通常residentと同じworld rule、時間、制約、関係、健康、経済、社会、歴史的因果の中へ参加させます。
 
-「フルダイブ」という表現は、この住民としての没入体験を示す比喩です。VR、AR、HMD、身体トラッキング、触覚提示、写実的レンダリング等の特定技術や入出力方式そのものを意味しません。
+Diverだけに都合のよい結果を演出することを目的とせず、深いworld simulationの因果をDiver自身の経験として感じられることを重視します。
 
-ダイバーを単に世界状態を閲覧してコマンドを送る外部クライアントとして扱うのではなく、シミュレーション世界の中に一人の住民として存在し、他の住民と同じ世界のルール・因果・時間の流れ・相互作用の中に参加する存在として体験できる方向を優先して検討します。
+VR等は将来addonで体験を拡張できる可能性がありますが、standard requirementではありません。
 
-要件候補を比較する場合は、少なくとも次の観点から住民としての体験への寄与を検討します。
+## 4. Diverとresidentのbinding
 
-- 世界の外から管理・操作している感覚ではなく、自分が世界の中に存在している感覚を高められるか
-- 自分の行動が世界の状態へ作用し、その結果が世界の因果関係を通じて自分へ返ってくるか
-- 他の住民や世界の仕組みが、ダイバーだけを特別扱いするのではなく、世界の一住民として認識・反応できるか
-- ダイバーにも世界の時間経過、制約、関係性、履歴、結果の蓄積が連続して作用するか
-- 周囲の出来事が単なる演出ではなく、シミュレーションされた世界の結果として自分の生活・判断・行動へ影響するか
-- 世界シミュレーションの深さを、統計画面を見るだけでなく、自分自身の経験として感じ取れるか
-- UIやシステム都合が「世界の外側の操作パネルを使っている」という感覚を不必要に強めていないか
+Q260〜Q264を確定要件とします。
 
-画面の見た目、情報表現、演出、視認性、操作感などのビジュアル・UI品質は重要な利用者体験要素です。ただし、レンダリングの写実性や視覚的リアリティそのものを「フルダイブ感」の中心定義にはしません。見た目が優れていても、世界から切り離された観察者・操作者としてしか振る舞えないなら、第二原則を十分に満たしているとは扱いません。
+### 4.1 Existing residentのみ
 
-VR等は、将来的にこの住民体験を強化するアドオンとして採用する可能性があります。ただし、第二原則を満たすためにVRや身体トラッキング等を必須とするものではありません。具体的な提示技術、対応デバイス、操作方式、身体表現、視点、感覚表現は別途要件として定義します。
+- Diver joinのためにnew residentを生成しない。
+- worldに既に存在する通常residentへbindする。
+- Diver-controlled residentも通常のphysics、social、economy、law、health等のworld ruleに従う。
 
-また、ダイバー体験の最大化は、ダイバーだけに都合のよい結果を世界側で演出することを意味しません。第一原則である「狂気的なまでに世界をシミュレーションする」ことと両立させ、ダイバー自身も世界を構成する一住民として、シミュレーションされた因果関係の中へ参加する方向を基本とします。
+### 4.2 希望条件
 
-## 4. 主な責務
+- Diverはbind対象residentについてbroad preferenceをrequestできる。
+- 条件を満たすresidentが割り当てられることは保証しない。
+- arbitrary residentを無条件にtake overする機能にはしない。
 
-- 一般利用者向け画面の表示
-- 利用者ロールに応じた機能・情報の提示
-- シミュレーション状態の可視化
-- ゲートウェイへの参照要求送信
-- ゲートウェイへの権限付き操作要求送信
-- ゲートウェイから受け取ったデータ・操作結果の表示
-- 表示用状態の管理
-- 読み込み中・失敗・再接続など利用者向け状態の表示
-- 利用者が理解できる単位への情報整理
+Exact preference/matching ruleは詳細設計で決定します。
 
-## 5. 責務外
+### 4.3 1 resident / 1 Diver
 
-- シミュレーション状態の正本管理
-- シミュレーションルールの最終判定
-- シミュレーションコアへの直接接続
-- ゲートウェイを迂回した状態変更
-- 利用者権限の最終認可判定
-- 各コンポーネントのログ・内部診断情報の運用監視
-- コンポーネントConfigの直接変更
-- システム運用コマンドの直接実行
-- 外部接続の負荷分散
+- 原則1residentにつき1Diver。
+- disconnectを理由に別Diverへresident controlを自動移譲しない。
+- reconnect後もsame Diver identityを使用する。
 
-## 6. 主要機能
+### 4.4 Resident death
 
-### 6.1 シミュレーション状態表示
+Controlled residentが死亡した場合、そのresidentは通常のworld death、postmortem、inheritance、history等のruleに従います。
 
-ゲートウェイから取得したシミュレーション情報を、利用者ロールに応じた範囲で表示します。
+Diver identityは維持し、参加ruleに従い後に別のexisting residentへbind可能にできます。Diver join用new residentは生成しません。
 
-一般ビューが参照する情報は、原則としてゲートウェイが保持する参照用キャッシュを通じて提供されます。
+## 5. Disconnect中のDiver resident
 
-### 6.2 利用者ロール別アクセス
+- normal disconnectとerror disconnectを同じ基本semanticsで扱う。
+- residentをworldからremoveしない。
+- disconnect時点へworldをrewindしない。
+- residentはabsence中もworld内で行動を続ける。
+- Diverはabsence中にresidentへ優先させるbehavior/action方針を事前設定可能にする。
 
-一般ビューは利用者のロールに応じて、表示可能な情報と送信可能な操作を切り替えます。
+Exact absence behavior engine/schemaは未確定です。
 
-ただし、UI 上で非表示・無効化するだけで認可を完結させません。ゲートウェイが要求単位で利用者ロールと権限を検証します。
+## 6. State displayのauthoritative basis
 
-### 6.3 ダイバー参加
+General ViewはGatewayがpublishしたconfirmed stateを表示basisにします。
 
-ダイバーはシミュレーションの住民として参加し、シミュレーション住民と同程度の範囲でシミュレーションへ干渉できます。
+- display stateには対応するWorld Time / Simulation Stepを識別できる必要がある。
+- incompatibleな異なるStepのstateを1つのconfirmed snapshotとして混在させない。
+- Gateway cacheはauthoritativeではないが、Gatewayがprotocol上confirmed publicationとして提供したsequenceをdisplay basisに使う。
+- old View-local stateをcurrent authoritative-looking stateとしてblind reuseしない。
 
-ダイバー参加の設計では、「フルダイブ」という比喩が示す、自分自身が世界を構成する一住民であるかのような体験の最大化を常に評価軸とします。
+## 7. Interpolation / prediction
 
-ダイバーとシミュレーション内部の住民エージェントをどのように対応付けるか、参加・離脱・再接続・所有関係などは今後定義します。
+Smooth displayのため、View側でinterpolationやshort predictionを行えます。
 
-### 6.4 スペクテイター参照
+- presentation-only / non-authoritative。
+- confirmed stateとpredictionを内部的に区別する。
+- predictionがworld outcomeへ影響してはならない。
+- confirmed result到着時にreconcileする。
 
-スペクテイターはシミュレーションへ一切干渉できません。
+## 8. Diver操作のreal-time感
 
-参照可能なのは、システムのバイタルに関係しない程度のステータスです。具体的な公開ステータス一覧は今後定義します。
+Gatewayにstandard約1秒のlogical publication delayがあっても、Diverからはreal-timeに操作しているように感じられる体験を目標にします。
 
-### 6.5 モデレーター操作
+- inputへのlocal immediate feedbackを許容する。
+- short local predictionを許容する。
+- authoritative resultはCore→Gateway confirmed state/resultに従う。
+- mismatch時はcorrection/reconcileする。
 
-モデレーターは、シミュレーションおよび自身より下位の利用者に対して限定的な干渉ができます。
+Prediction algorithm、correction visual、animationは詳細設計で決定します。
 
-ただし、クリティカルな操作は実行できません。何をクリティカルとするかは権限設計で明文化します。
+## 9. Reconnect / resync
 
-参照可能範囲はスペクテイターと同等です。
+Reconnect時は可能な限りsame session / same Diver identityを復元します。
 
-### 6.6 アドミニストレーター操作
+- Gateway publication basisへ同期してからnormal displayへ戻る。
+- syncing/resyncing stateをuserへvisibleにする。
+- Gateway自体がresyncingの場合、その状態を明示する。
+- inconsistent state sequenceをnormal stateとして表示しない。
 
-一般ビューのアドミニストレーターは、シミュレーションへ完全に干渉でき、一般ビューから提供されるすべてのステータスを参照できます。
+## 10. Login / auth / role
 
-ただし、管理ビューが扱うコンポーネント運用情報・ログ・Config・運用コマンドとは責務を分離します。
+- Userはconnected Gatewayへlogin requestを送る。
+- Gateway側ではlogin requestがMaster Gatewayへproxyされ、Masterでloginが確定する。
+- Viewは具体的なMasterへのdirect connectionを前提にしない。
+- General View auth/authz domainとAdmin View auth/authz domainを分離する。
+- role changeには明示的なeffective pointを持たせる。
+- privilege revoke後にold privilegeでnew Operationを継続させない。
 
-### 6.7 可視化
+Credential、token、IdP、session technologyは未確定です。
 
-数値、一覧、地理・空間表現、グラフ、状態表示など、シミュレーション内容に適した方法で情報を可視化します。
+## 11. Operation input
 
-画面の見た目や表現品質は重要ですが、写実性だけを住民としての没入体験の尺度にはしません。
+General ViewはGatewayへrole-permitted Operation requestを送ります。
 
-具体的な UI 形式や可視化技術は未確定です。
+- UIでdisabledにするだけでauthorizationを完結させない。
+- Gatewayがrequestごとにauthn/authzする。
+- unauthorized requestをCoreへ送らない。
+- Operation resultがpending/accepted/rejected/confirmed等の状態を持つ場合、userへ適切に表示する。
+- Network arrival raceやView frame timingをworld outcomeの決定要因にしない。
 
-### 6.8 表示用状態管理
+Exact Operation UI、message schemaは詳細設計で決定します。
 
-画面選択状態、表示範囲、フィルタ、並び順、開閉状態など、表示のためだけに必要な状態を管理します。
+## 12. Three.js full-3D rendering
 
-これらをシミュレーションの正本状態と混同しません。
+General ViewはThree.jsでfull-3D worldを描画します。
 
-### 6.9 通信状態表示
+Coreのauthoritative full-3D spatial modelには、terrain surfaceだけでなくcave、tunnel、basement、mine working、overhang、same XYの異なるZに存在するspace/surface等が含まれます。
 
-ゲートウェイとの通信状態に応じて、読み込み中、切断、再試行中、取得失敗などを利用者へ適切に表示します。
+Viewは公開されたauthoritative-derived stateと矛盾しない形で、地下空間のwall/ceiling/floor等も適切に描画できる必要があります。
 
-## 7. データ所有権
+Three.js version、WebGL/WebGPU、scene graph、LOD、asset、shader、render update rate、UI framework、browser/device target等は詳細設計で決定します。
 
-ビューが所有するのは表示状態、操作入力途中の状態など、利用者インターフェース上の一時状態のみです。
+## 13. 表示専用state
 
-ゲートウェイから取得したシミュレーションデータは参照用であり、正本ではありません。シミュレーション状態の正本はシミュレーションコア側にあります。
+View自身が所有してよいstateは、例えば次です。
 
-## 8. 他領域との関係
+- camera
+- selected entity
+- open/closed panel
+- filter/sort
+- interpolation/prediction state
+- input-in-progress
+- local presentation cache
 
-### ゲートウェイ
+これらをauthoritative World Stateとして扱いません。
 
-- 一般ビューはゲートウェイにのみアクセスする。
-- 状態参照・利用者操作はゲートウェイの一般ビュー向けプロトコルを通じて行う。
-- ゲートウェイが利用者の認証・認可境界を提供する。
-- コアへ影響する一般ビュー操作は、ゲートウェイが権限検証した上でコア向けプロトコルへ変換・中継する。
+## 14. Communication / error display
 
-### シミュレーションコア
+General Viewは少なくとも次を利用者へ表示できるようにします。
 
-- 直接依存しない。
-- 直接接続しない。
-- コア内部の型やデータ構造を参照しない。
-- シミュレーション上の最終的な操作妥当性はコアが判断する。
+- loading
+- disconnected
+- reconnecting
+- resyncing
+- session expired/revoked
+- protocol Major mismatch
+- required Capability mismatch
+- Operation rejected
+- temporary unavailable
 
-### 管理ビュー
+Exact UI wording/layoutは詳細設計で決定します。
 
-- 一般ビューはシミュレーション利用者向けの領域である。
-- 管理ビューは各コンポーネントの運用・診断・設定・コマンド実行を担当する。
-- 一般ビューのアドミニストレーターと管理ビューを同一概念として扱わない。
+## 15. Addonとの関係
 
-## 9. セキュリティ・権限原則
+AddonはGeneral View component単位でも設定可能です。
 
-- UI 表示制御だけを認可手段にしない。
-- すべての参照・操作要求はゲートウェイで利用者ロールに基づいて認可する。
-- コアへ到達する操作については、コア側でもシミュレーション上の妥当性を検証する。
-- 下位ロールが上位ロール専用操作を直接プロトコル送信しても実行できないこと。
-- 一般ビューのアドミニストレーター権限を、管理ビュー用の運用権限へ暗黙的に拡張しないこと。
+- standard Gateway↔View protocolへaddon functional payload/commandを載せない。
+- addon install/version/Capability等のcompatibility/safety meta情報はstandard protocolで交換可能。
+- View addonがGateway addon等と固有dataを交換する必要がある場合、addon/framework側のadditional protocolを使用する方向とする。
 
-## 10. 超大規模化における設計要件
+Concrete addon APIは未確定です。
 
-- 全シミュレーション状態の常時取得を前提にしない。
-- 画面更新頻度をシミュレーション更新頻度と安易に一致させない。
-- 大量データ受信時にも UI が操作不能にならない構造を検討する。
-- 利用者数の増加は主としてゲートウェイ層で吸収できる構成とする。
-- 利用者操作が増加しても、ゲートウェイによる認証・認可・流量制御を通じてコア負荷を保護できること。
-- 性能・スケール上の制約を理由に、ダイバーの世界との相互作用を不必要に断絶させない。必要な体験を定義したうえで、ゲートウェイ・ビュー側の配信・表現方法を最適化する。
+## 16. 責務外
 
-## 11. 禁止する依存・実装
+- Authoritative World State
+- simulation ruleの実行
+- Coreへのdirect connection
+- authzのserver-side final enforcement
+- Gateway cacheの内部実装
+- component Configのdirect edit
+- Admin View運用command
+- addon functional protocolをstandard protocolへ追加すること
 
-- シミュレーションコアへの直接接続
-- ゲートウェイを経由しないシミュレーション状態変更
-- UI だけで完結する権限制御
-- シミュレーション内部状態の直接変更
-- シミュレーションルールの UI 側への複製
-- 一般ビューのアドミニストレーターへ管理ビューのコンポーネント運用機能を混在させること
-- 表示用データやゲートウェイキャッシュを正本として扱うこと
-- 「フルダイブ」を理由に、VR・身体トラッキング・写実的レンダリング等を必須要件として暗黙に確定すること
+## 17. 詳細設計へ残す事項
 
-## 12. 今後決定が必要な事項
-
-- 各ロールの具体的な操作一覧
-- 各ロールの参照可能ステータス一覧
-- 「システムのバイタルに関係しないステータス」の定義
-- 「クリティカルな干渉」の定義
-- 利用者ロールの付与・変更・剥奪方式
-- ダイバーと住民エージェントの対応方式
-- ダイバー参加・離脱・再接続規則
-- ダイバーが一住民として感じるために必要な具体的な体験要件
-- ダイバーの視点・身体表現・操作方式
-- ダイバーへ提示する世界情報・フィードバックの範囲と方法
-- 見た目・情報表現・演出に関する品質要件
-- VR等の追加体験方式をアドオンとして提供するか
-- 下位利用者へのモデレーター操作一覧
-- アドミニストレーターのシミュレーション操作一覧
-- 認証方式
-- セッション管理
-- 提供画面一覧
-- UI 技術スタック
-- データ取得単位
-- 大量データの可視化方式
-- 対応端末・対応ブラウザ等の実行環境
+- exact role permission matrix
+- Diver preference/matching UI/schema
+- absence behavior policy UI/schema
+- login/session UI
+- state update protocol利用方式
+- prediction/reconcile UX
+- camera/control scheme
+- Three.js scene/LOD/shader/assets
+- browser/device support
+- status/error presentation
+- accessibility/localization
+- addon View extensionの具体境界
