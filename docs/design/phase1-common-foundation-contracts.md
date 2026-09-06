@@ -1,6 +1,6 @@
 # 詳細設計 Phase 1: 共通基盤・契約
 
-Status: Draft / Phase 1 in progress  
+Status: Complete / Phase 1 complete  
 Tracking: Issue #13  
 Source of truth: `docs/requirements` / `docs/architecture` / `docs/protocols`
 
@@ -17,8 +17,9 @@ Phase 1対象:
 5. Protocol common envelope / version / Capability / result-error
 6. Snapshot / replay / recovery consistency
 7. Pause / late / retry / dedup / failover semantics
+8. cross-cutting consistency review
 
-P1-01〜P1-06を完了し、次作業はP1-07横断整合性レビューとする。
+P1-01〜P1-07はすべて完了した。
 
 ## 2. 正本文書
 
@@ -29,8 +30,11 @@ P1-01〜P1-06を完了し、次作業はP1-07横断整合性レビューとす�
 - P1-04 Protocol envelope: `docs/design/phase1-protocol-envelope.md`
 - P1-05 persistence/replay/recovery: `docs/design/phase1-persistence-replay-recovery.md`
 - P1-06 Operation lifecycle/retry/dedup: `docs/design/phase1-operation-lifecycle-retry-dedup.md`
+- P1-07 final cross-cutting review: `docs/design/phase1-cross-cutting-review.md`
 
 各 `docs/protocols` 文書は上記共通意味論を境界固有payloadへ適用する。
+
+古いsubphase文書末尾に残る「後続で決める」「P1-06へ引き渡す」等の記述は、そのsubphase完了時点の履歴である。現在の未決定一覧はP1-07文書を正本とする。
 
 ## 3. 共通設計原則
 
@@ -41,6 +45,7 @@ P1-01〜P1-06を完了し、次作業はP1-07横断整合性レビューとす�
 - save / replay / recoveryを跨いでWorldId、WorldSeed、EntityId、Operation identity、Config historyを維持する。
 - component間でshared DTO libraryを契約正本にしない。
 - protocol / Config / persistence不整合をsilent degradationしない。
+- finalized state / terminal resultはdurability frontierを越えて公開しない。
 
 ## 4. Simulation Step / World Time
 
@@ -192,7 +197,7 @@ CausationId
 ComponentInstanceId
 ```
 
-はいずれも128-bit operational identityでありworld orderingへ使用しない。
+はいずれもoperational identityでありworld orderingへ使用しない。
 
 ```text
 WorldContextV1 {
@@ -216,7 +221,30 @@ OperationContextV1 {
 
 ACKはhop receipt / custodyでありterminal world successとは限らない。
 
-## 10. persistence / replay / recovery
+## 10. immutable Operation digest
+
+`mv.operation-payload.v1` digestへ含める:
+
+- operation type
+- logical target
+- immutable semantic payload / parameters
+- originが固定したsemantic constraints
+- `OperationSchedulingAdmissionV1`
+
+含めない:
+
+- ProtocolEnvelopeV1
+- MessageId / CorrelationId / CausationId
+- BatchId
+- MasterGeneration / NegotiationGeneration
+- retry / routing / network timing
+- Gateway / Master candidate Step
+- Core final/effective Step
+- ACK / result metadata
+
+same OperationId + different digestは `protocol.operation-payload-mismatch`。
+
+## 11. persistence / replay / recovery
 
 authoritative Snapshotは完全な `State(S)` boundaryだけを表す。
 
@@ -253,7 +281,7 @@ RecoveryStateはworld stateだけでなくpending accepted Operation、dedup sta
 
 State publication continuityには `StateContinuityToken` を使用する。
 
-## 11. Operation scheduling admission
+## 12. Operation scheduling admission
 
 Gatewayはconfirmed Core stateとCore配布scheduling policyを用いてimmutable admission contextを確定する。
 
@@ -280,15 +308,13 @@ OperationSchedulingPolicyV1 {
 }
 ```
 
-late policy:
-
 ```text
-REJECT | DEFER_WITHIN_GRACE
+LatePolicy := REJECT | DEFER_WITHIN_GRACE
 ```
 
 policyはSIMULATION Config。
 
-## 12. candidate / final effective Step
+## 13. candidate / final effective Step
 
 Gateway / Masterのcandidate Stepはadvisory。
 
@@ -315,7 +341,7 @@ target_step = max(canonical_candidate, next_schedulable_step)
 
 final schedulingはdurable historyへ保存する。
 
-## 13. Pause / resume
+## 14. Pause / resume
 
 worldが `State(P)` でPause中の場合:
 
@@ -335,7 +361,7 @@ pause_floor_step = P + 1
 - Pause中arrival orderをresume後orderへ使用しない。
 - durable accepted Operationにwall-clock expiryを設けない。
 
-## 14. Operation lifecycle / retry
+## 15. Operation lifecycle / retry
 
 Core authoritative lifecycle:
 
@@ -358,7 +384,7 @@ retry interval / timeout / backoffはOPERATIONAL Configでありworld Stepへ直
 
 client disconnect / session timeoutだけでCore accepted Operationをcancelしない。
 
-## 15. dedup retention
+## 16. dedup retention
 
 Core dedup primary keyはOperationId。
 
@@ -379,7 +405,7 @@ OperationDedupTombstoneV1 {
 
 rich result detailsは有限保持としてよいが、double-apply防止tombstoneはexpiryしない。
 
-## 16. Batch
+## 17. Batch
 
 Batchはtransport aggregation identity。
 
@@ -407,7 +433,7 @@ BatchStatus := RECEIVED | PARTIAL | COMPLETE | REJECTED
 
 Batchは暗黙all-or-nothing transactionではない。
 
-## 17. Master failover custody
+## 18. Master failover custody
 
 ```text
 SOURCE_HELD
@@ -422,7 +448,42 @@ SOURCE_HELD
 - Core acceptance不明時はsame identity retry / status queryで収束させる。
 - Core accepted済みOperationはMaster failoverで失わない。
 
-## 18. Phase 1 作業分解
+## 19. State diagnostic hash
+
+Phase 1のauthoritative diagnostic rootはP1-07で確定した3段階hierarchyを使用する。
+
+```text
+StateDiagnosticRootV1
+  -> DomainDiagnosticHashV1[]
+       -> StateDiagnosticSliceHashV1[]
+```
+
+- domain / sliceはlogical partition。
+- thread / process shard / DB shard / physical chunkへ依存しない。
+- domainごとに `DiagnosticPartitionVersion` とstable `DiagnosticSliceKey` を定義する。
+- sliceは `mv.state-diagnostic-slice.v1`、domainは `mv.state-diagnostic-domain.v1`、rootは `mv.state-diagnostic-root.v1` でdomain-separated SHA-256を計算する。
+- root `StateDiagnosticHash` はTransitionCommit / Snapshot verificationへ使用できる。
+- domain/slice hashはdivergence localization用に選択保存可能。
+
+詳細は `docs/design/phase1-cross-cutting-review.md` を参照する。
+
+## 20. common result code追加
+
+P1-06までに次をcommon namespaceへ追加した。
+
+```text
+operation.accepted
+operation.scheduled
+operation.result-details-expired
+protocol.batch-payload-mismatch
+world.deadline-exceeded
+world.late-deferred
+world.pause-deferred
+batch.partial
+batch.complete
+```
+
+## 21. Phase 1 作業分解
 
 ### P1-01 共通時間・識別子
 
@@ -453,40 +514,49 @@ SOURCE_HELD
 状態: 完了。  
 正本: `docs/design/phase1-operation-lifecycle-retry-dedup.md`
 
-確定:
-
-- scheduling admission context / Core-owned policy
-- candidate再計算 / authoritative effective Step
-- deadline / grace / late state machine
-- Pause floor rule
-- retry identity
-- world-lifetime terminal dedup tombstone
-- BatchDigest / PER_OPERATION partial completion
-- Master failover custody / status recovery
-
 ### P1-07 横断整合性レビュー
 
-状態: 次に着手する。
+状態: 完了。  
+正本: `docs/design/phase1-cross-cutting-review.md`
 
-- `docs/architecture` / `docs/protocols` の旧TBD・矛盾確認
+確認済み:
+
+- `docs/architecture` / `docs/protocols`とのsemantic整合
 - terminology / field name / stable code consistency
-- Phase 2〜4が追加cross-cutting仮定なしで開始可能か確認
-- Issue #13 completion criteria確認
+- P1-04/P1-05の後続handoff事項がP1-06/P1-07で解消済み
+- large-world diagnostic hash hierarchy確定
+- Phase 2〜4が追加cross-cutting仮定なしで開始可能
 
-## 19. P1-06完了時点の未決定事項
+## 22. Phase 1完了条件
 
-Phase 1横断blocker候補として残るもの:
+Issue #13の完了条件に対する判定:
 
-- authoritative state diagnostic hashのlarge-world slice/tree granularity
-- P1-04本文へのP1-06追加result code / immutable scheduling contextの最終同期確認
-- P1-05本文に残るP1-06参照TBDの最終同期確認
+- common ID contract: 完了
+- common time contract: 完了
+- deterministic ordering / conflict / random: 完了
+- Config schema / classification / apply / history: 完了
+- common Protocol envelope / version / Capability / error-result: 完了
+- Snapshot / replay / recovery consistency boundary: 完了
+- Pause / late / retry / dedup / failover: 完了
+- Phase 2〜4開始に必要なcross-cutting assumption: 追加不要
+- unresolved cross-cutting blocker: **0件**
 
-component implementation詳細としてPhase 1完了後へ残せるもの:
+Phase 1は完了と判定する。
 
-- physical storage product
-- concrete binary serialization / compression / encryption
+## 23. Phase 1後へ残す非blocker実装詳細
+
+次は後続component/domain詳細設計へ委ねる。
+
 - physical network transport
-- exact operational timeout/backoff数値
-- Gateway/Core queue/index data structure
+- concrete protocol serialization / compression
+- physical persistence product / file layout / encryption
+- exact wall-clock timeout / retry backoff数値
+- Gateway durable queue / Core dedup index physical data structure
+- state publication full/delta payload format
+- auth credential / IdP / session technology
+- component-specific permission matrix / command list
+- observability metrics / alert threshold
+- diagnostic treeのdomain-specific slice partition schema
+- schema tooling / code generation method
 
-P1-07で横断blockerを0件にし、Phase 1完了可否を判定する。
+これらはPhase 1で確定したidentity / ordering / durability / compatibility semanticsを変更してはならない。
