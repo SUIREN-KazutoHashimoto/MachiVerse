@@ -8,6 +8,8 @@ ProtocolIdは `mv.core-gateway` とする。
 
 共通 envelope / version / Capability / result / error / correlation contractは `docs/design/phase1-protocol-envelope.md` を正本とする。
 
+Persistence / replay / recovery / durability contractは `docs/design/phase1-persistence-replay-recovery.md` を正本とする。
+
 ## 2. 目的
 
 本protocolは、単一Simulation Coreと複数Gatewayの間で、少なくとも次を成立させる契約です。
@@ -36,6 +38,7 @@ Physical transport、serialization、compressionは個別protocol詳細設計事
 - Gateway/Masterのexternal-request conflict mediationと、Coreのworld-state/simulation-rule validityを分離する。
 - Admin Operation固有のauth/permission/format/target/allowed-condition validationはGateway責務。Coreはcommon world-state invariantを維持する。
 - network arrival timing、Gateway数、Master identity、retry countをworld outcomeの暗黙入力にしない。
+- Coreがexternally finalizedとして公開するstate / resultはP1-05のdurable frontierを越えてはならない。
 
 ## 4. Common envelope / Version / Capability
 
@@ -61,15 +64,34 @@ State communicationには少なくとも次を判別できる必要がある。
 
 - WorldId
 - basis Simulation Step
-- full / delta等を採用する場合の適用basis
+- `StateContinuityToken`
+- full / delta等を採用する場合のbase continuity token
 - reconnect/resyncでcontinuityを検証するための情報
 - protocol / Capability context
 
 共通WorldContextではstate basisを `basis_step` として表現する。
 
-Gatewayはold cacheをblind trustせず、reconnect時にCoreまたはprotocol上のauthoritative sync basisから再同期する。
+P1-05に従い、Coreはtransition commitがdurableになる前のStateをauthoritative confirmed stateとしてpublishしない。
 
-Push/Pull、full/delta/snapshot、continuity sequence/tokenはP1-05および本protocol個別詳細設計で決定する。
+### 5.1 continuity
+
+confirmed state publicationは必要に応じ次を持つ。
+
+```text
+basis_step
+state_continuity_token
+base_state_continuity_token | NONE
+```
+
+- `state_continuity_token` はCoreのcommitted causal historyから導出する。
+- process restartでtokenをprocess-local sequenceとして再採番しない。
+- deltaのbase tokenとGateway保持tokenが一致しなければblind applyしない。
+- mismatch時はfull resync / protocol-defined rebuildへ移行する。
+- tokenはworld-state equality hashではなくcausal continuity tokenである。
+
+Gatewayはold cacheをblind trustせず、reconnect時にCoreのcurrent finalized basisから再同期する。
+
+Push/Pull、full/delta payload schemaは個別protocol詳細設計で決定する。
 
 ## 6. Gateway接続とMaster eligibility
 
@@ -96,6 +118,8 @@ Exact health signal、threshold、timeoutはConfigと詳細protocolで定義す�
 - Master identityがworld outcomeへ影響してはならない。
 
 MasterGenerationはPhase 1共通契約の `uint64` を使用する。authority/routing validityに依存するmessageではWorldContextV1の `master_generation` を使用する。
+
+Recovery直後はpre-crash Master authorityを無条件に再信頼せず、protocol handshake / Core authorityを再確立してからnormal writeを受理する。
 
 Concrete election message、Master identity、health/election algorithmは個別詳細設計で決定する。
 
@@ -130,7 +154,9 @@ Final batchは少なくとも次を追跡できる必要がある。
 - duplicate requestに対しworld mutationをrepeatしない。
 - MessageId / CorrelationIdをOperation dedup keyにしない。
 
-Dedup retention period、storage/data structure、retention expiry後のduplicate resultはP1-06で決定する。
+Coreのdedup stateはP1-05のSnapshot / durable historyからrecovery可能にする。
+
+Exact dedup retention period、retention expiry後のduplicate resultはP1-06で決定する。
 
 ## 10. Deterministic ordering
 
@@ -156,6 +182,8 @@ WorldContextV1では次を区別する。
 
 - `basis_step`: state basis。
 - `effective_step`: Core確定済みauthoritative apply Stepのみ。
+
+Coreがfinal effective Stepをdurable scheduling factとして確定した場合、recovery後に別Stepへsilent reassignmentしない。
 
 Exact candidate/deadline/grace fieldsとdefer/reject algorithmはP1-06で定義する。
 
@@ -186,7 +214,7 @@ Gateway-approved Admin Operationであってもcommon invariantを破壊するst
 
 Login処理はGateway↔Gateway側でMasterへproxyして確定する。Login以外のAdmin Core OperationをMaster経由へ統一するかは個別routing詳細で決定する。
 
-## 14. Operation result / error
+## 14. Operation result / error / durability
 
 Operation/Batch resultは元requestへ対応付け可能なCorrelationIdとOperationContextを持つ。
 
@@ -206,7 +234,25 @@ Applied Operation resultでは該当する場合、WorldContext `effective_step`
 - temporarily unavailable
 - internal failure
 
-ACKはCore authoritative mutationのterminal successと同一視しない。
+### 14.1 authoritative `ACCEPTED`
+
+Coreがworld-affecting Operationについて`ACCEPTED`を返す場合、P1-05の`OperationAcceptedRecordV1`を先にdurableにする。
+
+- ACK直後にcrashしてもOperationId / immutable payload / recovery scheduling contextを失わない。
+- durable acceptance前のcrashではsenderがsame identityでretryできる。
+
+### 14.2 applied terminal result
+
+applied Operationのterminal `SUCCESS` / world-state terminal resultは、対応する`TransitionCommitRecordV1`がdurableになる前に返さない。
+
+- terminal resultとeffective Stepをrecovery後に再構成可能にする。
+- retention範囲内のduplicateへoriginal semantic resultを返せる。
+
+### 14.3 ACK scope
+
+Gateway↔Master等のhop-local ACKはCore authoritative acceptance / terminal mutation successと同一視しない。
+
+各ACK schemaは「memory receipt」「durable local custody」「Core durable acceptance」等、自身が保証するscopeを明示する。
 
 ## 15. Master failover / live migration
 
@@ -217,17 +263,16 @@ ACKはCore authoritative mutationのterminal successと同一視しない。
 - failover timingそのものがworld outcomeを変えない。
 - retry後もOperationId / BatchId / immutable digestを維持する。
 
-Exact handoff message、heartbeat、timeout等は個別詳細設計で定義する。
+Coreでdurably accepted済みのOperationはMaster failoverを理由に失わない。exact custody state machineはP1-06で定義する。
 
 ## 16. Gateway reconnect / resync
 
 - reconnect時にversion / Capability handshakeを再実行する。
 - old cacheをauthoritativeとして扱わない。
-- basis Simulation Step / generation等を確認してresyncする。
+- basis Simulation Step / StateContinuityToken / generation等を確認してresyncする。
 - missing/reorder/sync mismatch時にrefetch/rebuild可能にする。
 - Gatewayはresync中のinconsistent state sequenceをnormal publishしてはならない。
-
-State continuity sequence/tokenとrecovery checkpoint relationはP1-05で定義する。
+- recovery後のCore current finalized basisがGateway保持tokenと一致しない場合full resyncする。
 
 ## 17. Gatewayが0台の場合
 
@@ -241,10 +286,11 @@ Gateway復旧後にabsence期間をrewindしない。
 
 Gatewayが外部運用へ必要な範囲で次をprotocol化可能にする。
 
-- current Simulation Step
+- current Simulation Step / last durable finalized Step
 - real-time target lag等のhealth
 - current Master / generation
 - save / recovery state
+- persistence unavailable / degraded state
 - compatibility / Capability error
 - relevant Config generation / validation error
 
@@ -261,15 +307,17 @@ ConfigGenerationを含める場合、WorldContextの値はsenderであるCoreの
 - MessageId / CorrelationIdをOperation dedup keyにすること
 - candidate Stepをauthoritative effective_stepとして送ること
 - network arrival orderのauthoritative ordering化
-- Gateway cacheをauthoritative stateとして扱う契約
+- Gateway cacheをauthoritative state / recovery sourceとして扱う契約
 - Admin UI roleをCore authzへ持ち込むこと
 - standard protocolへaddon functional payloadを載せること
 - negotiated compatibility不成立でnormal communicationを継続すること
-- ACKをterminal world successと同一視すること
+- hop ACKをterminal world successと同一視すること
+- durable Operation acceptance前のauthoritative `ACCEPTED`
+- transition commit前のauthoritative State publication / applied terminal result
 
 ## 20. 詳細設計へ残す事項
 
-P1-04で共通化済み:
+P1-04 / P1-05で共通化済み:
 
 - common envelope
 - version field / handshake
@@ -278,17 +326,19 @@ P1-04で共通化済み:
 - correlation/causation
 - MasterGeneration / basis/effective Stepの共通context
 - Operation immutable digest inclusion/exclusion
+- StateContinuityToken semantics
+- durable Operation acceptance / terminal result boundary
+- finalized Step / recovery checkpoint semantics
 
 残る個別事項:
 
 - physical transport / connection direction
 - serialization / compression
-- state sync full/delta schema
-- continuity sequence/token
+- state sync full/delta payload schema
 - Gateway identifier / Master election messages
 - final batch payload schema
 - candidate Step / deadline / grace fields
 - Batch atomicity / partial success state machine
-- dedup retention / terminal result persistence
+- dedup retention / terminal result expiry
 - login以外Admin routing
 - heartbeat / timeout / reconnect / resync message set
