@@ -69,35 +69,58 @@ Phase 3 completion reviewで、次をPhase 4のconcrete design対象として引
 
 ## 5. Phase 4作業分解
 
-### P4-01 共通data structure / state layout / index — In Progress
+### P4-01 共通data structure / state layout / index — Complete
 
-成果物: `phase4-core-data-structures.md`
+成果物:
 
-対象:
+- `phase4-core-data-structures.md`
+- `phase4-domain-state-registry.md`
+
+確定事項:
 
 - primitive/value typeのexact representation
 - stable token / schema identity / version表現
-- authoritative `WorldState` directory
-- state partition header / revision / owner metadata
+- authoritative `WorldStateV1` directory
+- partition header / revision / owner metadata
 - Step candidate / partition candidate / event / intent / invariant result layout
 - deterministic collection ordering
 - operation dedup / scheduler / transaction / state lookup index contract
-- ownership・mutation境界
+- partition builder ownership・mutation境界
+- Phase 3全8 domain / 97 authoritative partition registry
+- `PartitionRecordId` / common record envelope / canonical record order
+- standard partition schema identity rule
+- snapshot/replayで保持すべきinitial persistence class
 
-P4-01ではdomain固有数値solverまでは固定しない。
+Domain payload内部の数値model・solver・domain-specific secondary indexはP4-05へ引き渡す。
 
-### P4-02 Protocol正式schema / error catalog — Planned
+### P4-02 Protocol正式schema / error catalog — In Progress
 
-予定成果物: `phase4-protocol-schema.md`
+成果物: `phase4-protocol-schema.md`
 
-- 4 protocolのmessage registry
-- exact envelope field / scalar type / requiredness
-- request/response/event/ACK/result semantics
-- protocol version / capability negotiation schema
-- common/domain error code registry
-- full/delta publication wire contract
-- size / count / recursion / string limit
-- malformed / incompatible / stale generation handling
+確定済み:
+
+- standard wire serialization: Protocol Buffers proto3
+- internal Core↔Gateway / Gateway↔Gateway: gRPC bidirectional stream
+- Web General View / Admin View: binary WebSocket
+- common `WireEnvelopeV1` field number/type/validation
+- 8 MiB envelope limitとcommon structural limit
+- uint64のbrowser lossless mapping rule
+- handshake / version / Capability common wire schema
+- common Result / RetryAdvice / ErrorCode registry
+- state publication FULL/DELTA chunking base schema
+- Standard Operation / Batch / status query base schema
+- 4 protocol initial message registry
+
+未決定:
+
+- exact auth credential/session payload
+- role/permission matrix
+- Core/Gateway heartbeat/election physical messages
+- batch ACK/result detail fields
+- View subscription/projection field registry
+- Admin health/log/config/audit exact fields
+- standard OperationKind payload catalog
+- message-by-message required Capability matrix
 
 ### P4-03 Config specification — Planned
 
@@ -130,6 +153,7 @@ P4-01ではdomain固有数値solverまでは固定しない。
 
 - coordinate/frame/geometry representation
 - spatial index
+- 97 partition payload field/numeric schema
 - weather/hydrology/ocean/geology/ecology solver family
 - collision / motion / pathfinding
 - Resident numerical state update
@@ -271,9 +295,11 @@ PartitionDescriptorV1 {
 }
 ```
 
+Phase 4 standard profileは97 authoritative partitionを`phase4-domain-state-registry.md`で固定する。
+
 - `partition_id`はworld内で一意。
 - owner変更はschema migrationなしに行わない。
-- cross-domain参照はstable ID/referenceを使う。
+- cross-domain参照は`PartitionRecordRefV1`等stable ID/referenceを使う。
 - foreign partitionのmutable object referenceをdomain runtimeへ渡さない。
 - candidate mutationはowner partitionのbuilderへ集約する。
 
@@ -315,10 +341,8 @@ silent coercionでworld semanticsを変更しない。
 
 ## 12. 現在の進捗
 
-Phase 4開始時点:
-
-- P4-01: In Progress
-- P4-02: Planned
+- P4-01: Complete
+- P4-02: In Progress
 - P4-03: Planned
 - P4-04: Planned
 - P4-05: Planned
@@ -326,6 +350,8 @@ Phase 4開始時点:
 - P4-07: Planned
 - P4-08: Planned
 - P4-09: Planned
+
+Phase 4全体進捗目安: 30%。
 
 blocker: なし。
 
