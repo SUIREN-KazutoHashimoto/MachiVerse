@@ -5,7 +5,6 @@ package machiverse.protocol.v1;
 option csharp_namespace = "MachiVerse.Protocol.V1";
 
 import "common.proto";
-import "auth.proto";
 
 // Canonical wire declaration for Standard Protocol v1 payloads.
 
