@@ -1,16 +1,16 @@
-title: "[Show and tell] "
+title: "[成果発表] "
 body:
   - type: markdown
     attributes:
       value: |
-        MachiVerseを使った試作、検証、可視化、連携例などを共有するためのフォームです。
-        公式機能・公式アドオンとしての採用を意味するものではありません。
+        MachiVerseに関連する試作品、実験、検証結果、ツール、アドオン、その他の成果物を共有する場所です。
+        ここで紹介された内容がMachiVerseの公式機能・公式アドオンとして承認または採用されたことを意味するものではありません。
 
   - type: textarea
     id: overview
     attributes:
       label: 共有内容
-      description: 何を作成・検証したのかを説明してください。
+      description: 何を作成・検証したのか、どのような結果が得られたのかを説明してください。
     validations:
       required: true
 
@@ -26,7 +26,7 @@ body:
     id: links
     attributes:
       label: 参考情報
-      description: デモ、コード、画像、関連Discussion等があれば記載してください。第三者の権利や機密情報を含めないでください。
+      description: デモ、コード、画像、関連Discussionなどがあれば記載してください。
 
   - type: checkboxes
     id: confirmation
