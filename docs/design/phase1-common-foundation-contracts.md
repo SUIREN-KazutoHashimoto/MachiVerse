@@ -18,7 +18,7 @@ Phase 1 では次を確定対象とする。
 6. Snapshot / replay / recovery の一貫性境界
 7. Pause / resume / late Operation / retry / dedup の共通意味論
 
-P1-01〜P1-04 を完了し、現在の次作業は P1-05 persistence / replay / recovery とする。
+P1-01〜P1-05 を完了し、現在の次作業は P1-06 pause / late / retry / dedup 共通意味論とする。
 
 ## 2. 設計原則
 
@@ -31,6 +31,7 @@ P1-01〜P1-04 を完了し、現在の次作業は P1-05 persistence / replay / 
 - deterministic encoding / hash / random の具体契約は `docs/design/phase1-determinism-ordering-random.md` を正本とする。
 - Config schema / classification / apply / history の具体契約は `docs/design/phase1-config-contract.md` を正本とする。
 - Protocol common envelope / compatibility / result semantics の具体契約は `docs/design/phase1-protocol-envelope.md` を正本とする。
+- persistence / replay / recovery の具体契約は `docs/design/phase1-persistence-replay-recovery.md` を正本とする。
 
 ## 3. Simulation Step / World Time
 
@@ -260,30 +261,55 @@ Phase 1 共通契約として次を固定する。
 - ACKはprotocol hopの受理状態であり、authoritative world mutationのterminal successと同一視しない。
 - standard protocolのaddon情報はcompatibility metadataに限定し、addon functional payload用generic slotを設けない。
 
-## 8. Pause / resume に対する時間契約
+## 8. persistence / replay / recovery 共通契約
+
+persistence の詳細は `docs/design/phase1-persistence-replay-recovery.md` を正本とする。
+
+Phase 1 共通契約として次を固定する。
+
+- Snapshot は完全な `State(S)` boundary を表し、transition途中状態を保存しない。
+- `State(S+1)` は transition S の durable `TransitionCommitRecordV1` 後に externally finalized / publishable とする。
+- `HistorySequence := uint64` の append-only durable history と SHA-256 hash chain で persistence continuity を追跡する。
+- world-affecting Operation の Core `ACCEPTED` は `OperationAcceptedRecordV1` の durability 後にのみ返す。
+- applied Operation の terminal result は対応 transition commit の durability 前に返さない。
+- Snapshot は `(snapshot_step=S, history_anchor=H)` の consistent cut を持ち、RecoveryState と `H+1` 以降のhistoryから継続する。
+- `RecoveryStateV1` は public World Stateだけでなく pending accepted Operation、dedup state、deterministic scheduler state、Config、StepRate、domain metadata 等の継続状態を含む。
+- `StateContinuityToken` で process restart を跨いだ state publication / delta continuity を識別する。
+- committed Snapshot は staging / partial Snapshot と区別し、manifest / section digest 検証後にのみ recovery candidate とする。
+- torn uncommitted tail は安全に切り捨て可能だが、committed region corruptionや acknowledged durable Operationの欠落をsilent ignoreしない。
+- recovery は latest usable Snapshot + contiguous valid history を replayし、last durable finalized stateまで復元する。
+- persistence migrationはdeterministic / non-destructiveとし、target全体検証後にのみpublishする。
+- history compactionは pending Operation、dedup retention、Config/replay guaranteeを失わない場合のみ許可する。
+
+## 9. Pause / resume に対する時間契約
 
 - Pause 開始時に current SimulationStep を固定する。
 - Pause 中に受信した simulation-affecting Operation を停止 Step へ即時適用しない。
 - resume 後、Core が protocol 規則に従い future valid Step を割り当てる。
 - Pause 時間の wall-clock 長さは replay 条件に含めない。
 
-## 9. persistence / replay への最低保存項目
+## 10. persistence / replay への最低保存項目
 
-Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保持する共通項目を固定する。
+Snapshot / history が最低限保持または再構成可能にする項目を次とする。
 
 - WorldId
 - WorldSeed
-- SimulationStep
+- SimulationStep / finalized Step frontier
 - StepRate history と current rate_generation
 - current MasterGeneration
 - EntityId を含む authoritative entity state
-- accepted/applied OperationId の再現に必要な履歴
+- deterministic scheduler / future event state
+- accepted / scheduled / applied Operation identity と immutable payload
+- retained terminal result / dedup state
 - simulation-affecting Config generation / digest / history
 - enabled domain set / dependency declaration
+- HistorySequence / history anchor digest
+- StateContinuityToken
+- required addon / migration compatibility metadata
 
-具体的 snapshot boundary、dedup retention、history compaction、terminal result retention は後続作業で決定する。
+exact dedup retention window と history floor は P1-06 で確定する。
 
-## 10. Phase 1 作業分解
+## 11. Phase 1 作業分解
 
 ### P1-01 共通時間・識別子
 
@@ -348,16 +374,26 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 
 ### P1-05 persistence / replay / recovery
 
-状態: 次に着手する。
+状態: 完了。
 
-- consistent snapshot boundary
-- operation/event history boundary
-- recovery checkpoint
-- state publication continuity basis
-- terminal result persistence boundary
-- migration failure semantics
+正本: `docs/design/phase1-persistence-replay-recovery.md`
+
+- `State(S)` consistent Snapshot boundary
+- `HistorySequence` / durable history hash chain
+- durable Operation acceptance / terminal result boundary
+- `TransitionCommitRecordV1` / finalized Step frontier
+- `StateContinuityToken`
+- `RecoveryStateV1` / `SnapshotManifestV1`
+- `(SnapshotStep, HistoryAnchor)` consistent cut
+- running Snapshot / stop-the-world fallback
+- recovery checkpoint / deterministic replay algorithm
+- torn tail / committed corruption distinction
+- history compaction safety conditions
+- deterministic non-destructive persistence migration
 
 ### P1-06 pause / late / retry / dedup 共通意味論
+
+状態: 次に着手する。
 
 - candidate/effective Step
 - deadline / grace / defer / reject
@@ -365,6 +401,8 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 - retry
 - stale generation
 - duplicate handling / dedup retention
+- Batch partial completion / retry state machine
+- Master failover custody
 
 ### P1-07 横断整合性レビュー
 
@@ -372,18 +410,16 @@ Phase 1 の persistence 詳細化に先立ち、snapshot/replay が最低限保�
 - `docs/protocols` へ確定契約を反映
 - Phase 2〜4 の blocker 0 件確認
 
-## 11. 未決定事項
+## 12. 未決定事項
 
-P1-04 完了時点の未決定事項は次の通り。
+P1-05 完了時点の未決定事項は次の通り。
 
-- snapshot / replay consistency boundary
-- operation/event history continuation point
-- protocol-visible state continuity sequence/token
-- persisted terminal result boundary
-- authoritative state diagnostic hash の slice/tree granularity
-- dedup retention window
+- exact dedup retention window
 - candidate Step / deadline / grace concrete field
 - Pause queue / late Operation の具体規則
 - Batch ACK / partial completion / retry state machine
+- Master failover custody の exact state machine
+- authoritative state diagnostic hash の large-world slice/tree granularity
+- physical storage product / concrete binary serialization / compression / encryption
 
-これらは Phase 1 内の後続作業で解消し、Phase 1 完了時には横断 blocker を 0 件とする。
+これらは Phase 1 内の後続作業または component implementation 詳細で解消し、Phase 1 完了時には横断 blocker を 0 件とする。
