@@ -1,6 +1,6 @@
 # 詳細設計 Phase 2: General View内部設計
 
-Status: In Progress  
+Status: Complete / Phase 2 reviewed  
 Tracking: Issue #14  
 Parent: `docs/design/phase2-component-internal-design.md`
 
@@ -65,7 +65,7 @@ PredictedPresentationState {
 
 - non-authoritative。
 - confirmed continuity tokenそのものをprediction stateへ付与してauthorityを偽装しない。
--破棄/再生成可能。
+- 破棄/再生成可能。
 
 ### 3.3 PresentationState
 
@@ -102,6 +102,8 @@ ParticipationDraft {
 ```
 
 View-local draftをbinding authorityとして扱わない。
+
+Phase 2最終レビューにより、session/auth/exclusive control admissionはGateway、world-affecting binding/absence policyのeffective stateはCore authority下のPhase 3 resident/participation domainが所有する。
 
 ## 4. confirmed publication flow
 
@@ -235,7 +237,7 @@ Viewはbroad preferenceの編集・送信UIを持てる。
 
 原則1resident/1Diverのserver-side ruleを表示する。
 
-Viewがduplicate tab/windowを検出しても、最終exclusive control enforcementはGateway/authoritative participation layer側で行う。
+Viewがduplicate tab/windowを検出しても、最終exclusive control enforcementはGateway側admissionとCore authoritative participation stateで行う。
 
 ### 7.3 reconnect
 
@@ -436,3 +438,5 @@ presentation metricをworld outcomeへ使用しない。
 - exact join preference schema
 - exact absence policy categories
 - local persistence technology
+
+最終component間ownershipとcompletion判定は `phase2-cross-component-review.md` を正本とする。
