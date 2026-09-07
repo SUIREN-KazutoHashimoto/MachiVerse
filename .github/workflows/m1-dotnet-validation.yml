@@ -1,0 +1,93 @@
+name: M1 .NET validation
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - simulation
+      - gateway
+      - view
+      - administration-view
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m1-dotnet-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  qa-contract-fixtures:
+    name: QA-01 contract fixtures
+    if: github.base_ref == 'develop'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.400
+      - name: Verify contract fixtures
+        run: dotnet run --project tools/MachiVerse.ContractFixtures -- verify
+
+  simulation-core:
+    name: SIM-01 Core build and smoke
+    if: github.base_ref == 'simulation'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.400
+      - name: Build Simulation Core
+        run: dotnet build src/MachiVerse.Simulation.Core/MachiVerse.Simulation.Core.csproj --configuration Release
+      - name: Run Simulation Core smoke tests
+        run: dotnet run --project tests/MachiVerse.Simulation.Core.SmokeTests --configuration Release
+
+  gateway:
+    name: GW-01 Gateway build and smoke
+    if: github.base_ref == 'gateway'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.400
+      - name: Build Gateway
+        run: dotnet build src/MachiVerse.Gateway/MachiVerse.Gateway.csproj --configuration Release
+      - name: Run Gateway smoke tests
+        run: dotnet run --project tests/MachiVerse.Gateway.SmokeTests --configuration Release
+
+  general-view:
+    name: VIEW-01 General View build
+    if: github.base_ref == 'view'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.400
+      - name: Build General View
+        run: dotnet build src/MachiVerse.View/MachiVerse.View.csproj --configuration Release
+
+  administration-view:
+    name: ADMIN-01 Administration View build
+    if: github.base_ref == 'administration-view'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.400
+      - name: Build Administration View
+        run: dotnet build src/MachiVerse.Administration.View/MachiVerse.Administration.View.csproj --configuration Release
