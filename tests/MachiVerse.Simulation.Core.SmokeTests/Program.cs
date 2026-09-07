@@ -1,3 +1,4 @@
+using MachiVerse.Simulation.Core.Configuration;
 using MachiVerse.Simulation.Core.Determinism;
 using MachiVerse.Simulation.Core.Runtime;
 
@@ -39,4 +40,63 @@ Require((half * FixedQ32_32.FromInteger(2)) == FixedQ32_32.One, "FixedQ32_32 mul
 Require(FixedQ32_32.FromRatio(5, 2).RoundToInteger() == 2, "Round-to-even must round 2.5 to 2.");
 Require(FixedQ32_32.FromRatio(7, 2).RoundToInteger() == 4, "Round-to-even must round 3.5 to 4.");
 
-Console.WriteLine("SIM-01 smoke tests passed.");
+var coordinator = new CoreConfigCoordinator();
+var initial = coordinator.LoadStartup("""
+[meta]
+format = "machiverse-config"
+schema_version = "1.0"
+component = "simulation-core"
+
+[simulation.step-rate]
+numerator = 60
+denominator = 2
+""");
+Require(initial.Generation == 1, "Initial ConfigGeneration must be 1.");
+Require(initial.Get<long>("simulation.step-rate.numerator") == 30, "Step rate numerator must be reduced.");
+Require(initial.Get<long>("simulation.step-rate.denominator") == 1, "Step rate denominator must be reduced.");
+Require(initial.Get<long>("runtime.worker-count") == 4, "Missing fields must receive schema defaults.");
+Require(initial.Digest.Length == 32, "ConfigDigest must be SHA-256 length.");
+
+var operational = coordinator.ValidateRuntimeChange(
+    new ConfigChangeSet(initial.Generation, [new ConfigChange("runtime.worker-count", 8L)], null),
+    minimumNextApplicableStep: 100);
+Require(!operational.ContainsSimulationImpact && !operational.IsNoChange, "Worker count must be an operational runtime change.");
+var appliedOperational = coordinator.ApplyAtBoundary(operational);
+Require(appliedOperational.Generation == 2 && appliedOperational.Get<long>("runtime.worker-count") == 8, "Operational change must atomically advance generation.");
+
+var simulationRejected = false;
+try
+{
+    coordinator.ValidateRuntimeChange(
+        new ConfigChangeSet(appliedOperational.Generation, [new ConfigChange("scheduling.min-lead-steps", 3L)], null),
+        minimumNextApplicableStep: 100);
+}
+catch (InvalidDataException ex) when (ex.Message == "config.effective-step-required")
+{
+    simulationRejected = true;
+}
+Require(simulationRejected, "Simulation-impact runtime change must require effective Step.");
+
+var simulation = coordinator.ValidateRuntimeChange(
+    new ConfigChangeSet(appliedOperational.Generation, [new ConfigChange("scheduling.min-lead-steps", 3L)], 100),
+    minimumNextApplicableStep: 100);
+Require(simulation.ContainsSimulationImpact && simulation.Candidate.Generation == 3, "Simulation change candidate generation mismatch.");
+
+var unknownRejected = false;
+try
+{
+    new CoreConfigCoordinator().LoadStartup("""
+[meta]
+format = "machiverse-config"
+schema_version = "1.0"
+component = "simulation-core"
+unknown = 1
+""");
+}
+catch (InvalidDataException)
+{
+    unknownRejected = true;
+}
+Require(unknownRejected, "Unknown Config fields must be rejected.");
+
+Console.WriteLine("SIM-01/SIM-02 smoke tests passed.");

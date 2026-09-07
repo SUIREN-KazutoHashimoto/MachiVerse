@@ -34,6 +34,7 @@ public sealed class MvDcborWriter
 
     public void WriteArrayStart(ulong count) => WriteInitialValue(4, count);
     public void WriteMapStart(ulong count) => WriteInitialValue(5, count);
+    public void WriteBoolean(bool value) => WriteByte(value ? (byte)0xf5 : (byte)0xf4);
     public byte[] ToArray() => _buffer.WrittenSpan.ToArray();
 
     private void WriteInitialValue(byte majorType, ulong value)
