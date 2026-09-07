@@ -92,23 +92,11 @@ Login bootstrap uses HTTPS BFF endpoints where redirect is required. Normal WebS
 | G→A | `config.change.result` | `ConfigChangeResultV1` | `protocol.config-change-result.v1` | operation context |
 | A→G | `operation.submit` | `StandardOperationV1` | `protocol.standard-operation.v1` | operation context |
 | G→A | `operation.result` | `OperationStatusResultV1` | `protocol.operation-status-result.v1` | operation context |
-| A→G | `operational.command` | `OperationalCommandV1` | `protocol.operational-command.v1` | operation context |
+| A→G | `operational.command` | `OperationalCommandV1` | `protocol.operational-command.v1` | operation context if state-changing |
 | A→G | `audit.query` | `AuditQueryV1` | `protocol.audit-query.v1` | optional world |
 | G→A | `audit.page` | `AuditPageV1` | `protocol.audit-page.v1` | optional world |
-| A→G | `admin.action.prepare` | `AdminActionPrepareV1` | `protocol.admin-action-prepare.v1` | operation context |
-| G→A | `admin.action.plan` | `AdminActionPlanV1` | `protocol.admin-action-plan.v1` | operation context |
-| A→G | `admin.action.confirm` | `AdminActionConfirmV1` | `protocol.admin-action-confirm.v1` | operation context |
-| G→A | `admin.action.confirmed` | `AdminActionConfirmationV1` | `protocol.admin-action-confirmation.v1` | operation context |
-| A→G | `admin.action.commit` | `AdminActionCommitV1` | `protocol.admin-action-commit.v1` | operation context |
-| G→A | `admin.action.result` | `AdminActionResultV1` | `protocol.admin-action-result.v1` | operation context |
-| A→G | `addon.inventory.query` | `AddonInventoryQueryV1` | `protocol.addon-inventory-query.v1` | optional world |
-| G→A | `addon.inventory.result` | `AddonInventoryResultV1` | `protocol.addon-inventory-result.v1` | optional world |
-| A→G | `addon.catalog.query` | `AddonCatalogQueryV1` | `protocol.addon-catalog-query.v1` | none |
-| G→A | `addon.catalog.page` | `AddonCatalogPageV1` | `protocol.addon-catalog-page.v1` | none |
 
 `audit.query`が`AuditPageV1`をrequest payloadとして使用する旧表記は誤りであり、本registryがsupersedeする。
-
-High-impact `config.change` / `operational.command` / simulation Admin Operation / addon actionはdirect applyせず、`admin.action.prepare` → `admin.action.plan` → `admin.action.confirm` → `admin.action.confirmed` → `admin.action.commit` → `admin.action.result` を使用する。
 
 Normal WebSocket message transport is TLS binary WebSocket at `/ws/v1/admin`.
 
@@ -121,19 +109,7 @@ Normal WebSocket message transport is TLS binary WebSocket at `/ws/v1/admin`.
 | `mv.gateway-view` | `protocol.protobuf.v1`, `protocol.state-full.v1`, `protocol.auth-bff.v1`, `protocol.session-generation.v1`, `protocol.view-projection.v1` |
 | `mv.gateway-admin-view` | `protocol.protobuf.v1`, `protocol.auth-bff.v1`, `protocol.session-generation.v1`, `protocol.admin-health.v1` |
 
-`mv.gateway-admin-view`のrequired baselineはread-only health/bootstrapを成立させる最小集合であり、optional featureをsilent downgradeする意味ではない。各featureは次のCapabilityでgateする。
-
-| Feature / message family | Required Capability |
-|---|---|
-| `component.health.*` | `protocol.admin-health.v1` |
-| `component.log.*` | `protocol.admin-log-query.v1` |
-| `config.*` | `protocol.admin-config.v1` |
-| `operation.submit`, `operation.result`, `operational.command` | `protocol.admin-operation.v1` |
-| `audit.*` | `protocol.admin-audit.v1` |
-| `admin.action.*` | `protocol.admin-confirmation.v1` plus the underlying action capability |
-| `addon.inventory.*`, `addon.catalog.*`, addon action | `protocol.admin-addon-management.v1` |
-
-Required feature Capability不足は`protocol.capability-missing`で明示rejectし、high-impact actionをordinary direct pathへdowngradeしない。
+Message-specific capabilities from `docs/design/phase4-protocol-payload-catalog.md` remain applicable.
 
 ## 7. Registry rule
 
