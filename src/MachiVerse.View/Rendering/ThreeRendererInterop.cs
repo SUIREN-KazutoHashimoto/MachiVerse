@@ -7,7 +7,9 @@ public sealed record RendererStatus(
     string BackendMode,
     string ThreeRevision,
     string? BasisStep,
-    int ProjectionRecordCount);
+    int ProjectionRecordCount,
+    int SceneObjectCount,
+    string RendererState);
 
 public sealed class ThreeRendererInterop(IJSRuntime jsRuntime) : IAsyncDisposable
 {
@@ -45,6 +47,12 @@ public sealed class ThreeRendererInterop(IJSRuntime jsRuntime) : IAsyncDisposabl
         await module.InvokeVoidAsync("applySceneProjection", cancellationToken, projection);
     }
 
+    public async ValueTask ClearSceneProjectionAsync(CancellationToken cancellationToken = default)
+    {
+        var module = _module ?? throw new InvalidOperationException("Renderer has not been initialized.");
+        await module.InvokeVoidAsync("clearSceneProjection", cancellationToken);
+    }
+
     public async ValueTask<RendererStatus> ReinitializeAsync(
         bool forceWebGl = false,
         CancellationToken cancellationToken = default)
@@ -63,6 +71,14 @@ public sealed class ThreeRendererInterop(IJSRuntime jsRuntime) : IAsyncDisposabl
     {
         var module = _module ?? throw new InvalidOperationException("Renderer has not been initialized.");
         return await module.InvokeAsync<RendererStatus>("getRendererStatus", cancellationToken);
+    }
+
+    internal async ValueTask<RendererStatus> SimulateLossForTestAsync(
+        string reason = "test-loss",
+        CancellationToken cancellationToken = default)
+    {
+        var module = _module ?? throw new InvalidOperationException("Renderer has not been initialized.");
+        return await module.InvokeAsync<RendererStatus>("simulateRendererLossForTest", cancellationToken, reason);
     }
 
     public async ValueTask DisposeAsync()
