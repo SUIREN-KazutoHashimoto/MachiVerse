@@ -20,7 +20,7 @@ public sealed record OperationCustodyRecord(
     ResultV1? TerminalResult)
 {
     public string OperationIdHex => Convert.ToHexStringLower(OperationId);
-    public bool NeedsAuthoritativeConvergence => State < GatewayCustodyState.CoreAccepted;
+    public bool NeedsAuthoritativeConvergence => (int)State < (int)GatewayCustodyState.CoreAccepted;
     public bool RetainIdentity => true;
 }
 
@@ -77,10 +77,10 @@ public sealed class OperationCustodyLedger
                 4 => GatewayCustodyState.Terminal,
                 _ => throw new InvalidDataException("custody.invalid-state")
             };
-            if (target == GatewayCustodyState.Terminal && !entry.HasResult)
+            if (target == GatewayCustodyState.Terminal && entry.Result is null)
                 throw new InvalidDataException("custody.terminal-result-missing");
 
-            var next = Advance(current, target, masterGeneration, entry.HasResult ? entry.Result : null);
+            var next = Advance(current, target, masterGeneration, entry.Result);
             _records[key] = next;
             updated.Add(next);
         }
@@ -108,10 +108,10 @@ public sealed class OperationCustodyLedger
             4 => GatewayCustodyState.Terminal,
             _ => throw new InvalidDataException("custody.invalid-core-lifecycle")
         };
-        if (target == GatewayCustodyState.Terminal && !status.HasTerminalResult)
+        if (target == GatewayCustodyState.Terminal && status.TerminalResult is null)
             throw new InvalidDataException("custody.terminal-result-missing");
 
-        var next = Advance(current, target, observedMasterGeneration, status.HasTerminalResult ? status.TerminalResult : null);
+        var next = Advance(current, target, observedMasterGeneration, status.TerminalResult);
         _records[key] = next;
         return next;
     }
@@ -128,11 +128,11 @@ public sealed class OperationCustodyLedger
         ulong masterGeneration,
         ResultV1? terminalResult)
     {
-        if (target < current.State)
+        if ((int)target < (int)current.State)
             throw new InvalidDataException("custody.state-regression");
         if (current.State == GatewayCustodyState.Terminal && target != GatewayCustodyState.Terminal)
             throw new InvalidDataException("custody.terminal-state-regression");
-        if (target < GatewayCustodyState.Terminal && terminalResult is not null)
+        if ((int)target < (int)GatewayCustodyState.Terminal && terminalResult is not null)
             throw new InvalidDataException("custody.premature-terminal-result");
 
         return current with
