@@ -35,6 +35,15 @@ public sealed class MvDcborWriter
     public void WriteArrayStart(ulong count) => WriteInitialValue(4, count);
     public void WriteMapStart(ulong count) => WriteInitialValue(5, count);
     public void WriteBoolean(bool value) => WriteByte(value ? (byte)0xf5 : (byte)0xf4);
+
+    // Appends one already-canonical MV-DCBOR value without wrapping it as a byte string.
+    // Callers should only pass bytes produced by this writer or a verified golden fixture.
+    public void WriteCanonicalValue(ReadOnlySpan<byte> canonicalValue)
+    {
+        if (canonicalValue.IsEmpty) throw new ArgumentException("Canonical MV-DCBOR value cannot be empty.", nameof(canonicalValue));
+        WriteRaw(canonicalValue);
+    }
+
     public byte[] ToArray() => _buffer.WrittenSpan.ToArray();
 
     private void WriteInitialValue(byte majorType, ulong value)
