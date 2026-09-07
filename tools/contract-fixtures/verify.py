@@ -110,6 +110,24 @@ def verify_identity_derivation() -> None:
         assert digest[:16].hex() == vector["id128_hex"], vector["name"]
 
 
+def verify_random() -> None:
+    data = load("random.json")
+    for vector in data["random_word64"]:
+        context = {int(key): value for key, value in vector["context"].items()}
+        value = {
+            0: bytes.fromhex(vector["world_seed_hex"]),
+            1: context,
+            2: vector["draw_index"],
+            3: vector["retry_index"]
+        }
+        encoded = encode(value)
+        digest = domain_hash(vector["label"], value)
+        word = int.from_bytes(digest[:8], "big")
+        assert encoded.hex() == vector["encoded_outer_hex"], vector["name"]
+        assert digest.hex() == vector["domain_hash_hex"], vector["name"]
+        assert word == vector["word64"], vector["name"]
+
+
 def main() -> None:
     manifest = load("manifest.json")
     assert manifest["fixture_format"] == "machiverse-contract-fixtures"
@@ -119,6 +137,7 @@ def main() -> None:
     verify_sha256()
     verify_mv_dcbor()
     verify_identity_derivation()
+    verify_random()
     print("contract fixtures v1: PASS")
 
 
