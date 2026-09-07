@@ -50,8 +50,10 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
             throw new InvalidOperationException("Config change draft requires a confirmed non-zero ConfigGeneration.");
         }
 
-        var target = ProjectionTarget(current);
-        return new ConfigChangeDraft(target, current.ConfigGeneration, Array.Empty<ConfigChangeEdit>());
+        return new ConfigChangeDraft(
+            ProjectionTarget(current),
+            current.ConfigGeneration,
+            Array.Empty<ConfigChangeEdit>());
     }
 
     public ConfigChangeDraft CreateValueReturnDraft(
@@ -331,9 +333,9 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
             }
         }
 
-        var terminal = wire.HasTerminalResult
-            ? ManagementResultProjection.FromWire(wire.TerminalResult)
-            : null;
+        var terminal = wire.TerminalResult is null
+            ? null
+            : ManagementResultProjection.FromWire(wire.TerminalResult);
         var state = (int)wire.State switch
         {
             2 => ManagementMutationState.Accepted,
@@ -496,7 +498,7 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
 
     private static ByteString RequireOperationContextId(WireEnvelopeV1 envelope)
     {
-        if (!envelope.HasOperationContext || envelope.OperationContext is null || !envelope.OperationContext.HasOperationId)
+        if (envelope.OperationContext is null || !envelope.OperationContext.HasOperationId)
         {
             throw new InvalidDataException("Management mutation result requires OperationContext.OperationId.");
         }
@@ -521,7 +523,21 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
     private static void ValidateId128(ByteString value, string fieldName)
     {
         ArgumentNullException.ThrowIfNull(value);
-        if (value.Length != 16 || value.All(static b => b == 0))
+        if (value.Length != 16)
+        {
+            throw new InvalidDataException($"{fieldName} must be a non-zero Id128.");
+        }
+
+        var allZero = true;
+        foreach (var octet in value.Span)
+        {
+            if (octet != 0)
+            {
+                allZero = false;
+                break;
+            }
+        }
+        if (allZero)
         {
             throw new InvalidDataException($"{fieldName} must be a non-zero Id128.");
         }
