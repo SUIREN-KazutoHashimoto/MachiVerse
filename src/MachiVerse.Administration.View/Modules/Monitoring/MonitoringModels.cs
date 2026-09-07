@@ -12,6 +12,7 @@ public enum MonitoringAccessState
     Available,
     Unavailable,
     Unauthorized,
+    Redacted,
 }
 
 public sealed record MonitoringChannelState(
