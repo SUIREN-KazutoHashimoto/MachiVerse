@@ -1,11 +1,9 @@
-using System.Runtime.CompilerServices;
 using MachiVerse.Simulation.Core.Determinism;
 using MachiVerse.Simulation.Core.Persistence;
 
 internal static class SnapshotManifestSmoke
 {
-    [ModuleInitializer]
-    internal static void Initialize()
+    internal static void Run()
     {
         var sectionIds = new List<string>
         {
