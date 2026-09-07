@@ -10,8 +10,8 @@ public static class ContractSelfTest
         Assert(!StableToken.TryParse("Core.World-State", out _), "StableToken invalid vector");
 
         var idBytes = Convert.FromHexString("000102030405060708090a0b0c0d0e0f");
-        var id = Id128.FromBytes(idBytes);
-        Assert(id.ToString() == "000102030405060708090a0b0c0d0e0f", "Id128 roundtrip");
+        var worldId = Id128.FromBytes(idBytes);
+        Assert(worldId.ToString() == "000102030405060708090a0b0c0d0e0f", "Id128 roundtrip");
 
         var abc = Hash256.Sha256("abc"u8);
         Assert(abc.ToString() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "SHA-256 abc");
@@ -39,6 +39,28 @@ public static class ContractSelfTest
         Assert((two * three).Raw == FixedQ32_32.FromInteger(6).Raw, "FixedQ32_32 multiply");
         Assert((FixedQ32_32.FromInteger(6) / three).Raw == two.Raw, "FixedQ32_32 divide");
         Assert(new ProbabilityPpm(1_000_000).Value == 1_000_000, "ProbabilityPpm upper bound");
+
+        var creatorId = Id128.FromBytes(Convert.FromHexString("101112131415161718191a1b1c1d1e1f"));
+        var entityId = DeterministicIdentity.DeriveEntityId(
+            worldId,
+            42,
+            StableToken.Parse("resident"),
+            creatorId,
+            StableToken.Parse("birth"),
+            7,
+            0);
+        Assert(entityId.ToString() == "1715d3bae14ddbc9372568e46698dc0e", "EntityId derivation vector");
+
+        var sourceId = Id128.FromBytes(Convert.FromHexString("202122232425262728292a2b2c2d2e2f"));
+        var intentId = DeterministicIdentity.DeriveIntentId(
+            worldId,
+            43,
+            0,
+            sourceId,
+            StableToken.Parse("physical_built"),
+            StableToken.Parse("entity.move"),
+            3);
+        Assert(intentId.ToString() == "1060de0caa85e65a7e9088cc0631d728", "IntentId derivation vector");
 
         Console.WriteLine("SIM-01 contract self-test: PASS");
         return 0;
