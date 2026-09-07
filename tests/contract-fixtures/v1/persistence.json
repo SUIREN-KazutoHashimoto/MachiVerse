@@ -1,0 +1,12 @@
+{
+  "u64be": [
+    {"value": 0, "hex": "0000000000000000"},
+    {"value": 1, "hex": "0000000000000001"},
+    {"value": 4294967296, "hex": "0000000100000000"},
+    {"value": 18446744073709551615, "hex": "ffffffffffffffff"}
+  ],
+  "current_pointer": [
+    {"generation": 1, "ascii": "0000000000000001\n", "length": 17},
+    {"generation": 42, "ascii": "000000000000002a\n", "length": 17}
+  ]
+}
