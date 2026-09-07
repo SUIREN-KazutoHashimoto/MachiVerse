@@ -1,0 +1,141 @@
+@page "/management"
+@implements IDisposable
+@inject IManagementModuleBoundary ManagementStore
+@inject OperationalCommandCatalog CommandCatalog
+
+<PageTitle>Management - MachiVerse Administration</PageTitle>
+
+<main class="shell">
+    <h1>Config / Operational Command Management</h1>
+    <p>Gateway protocol projections only. Target Config files and component internals are never accessed directly.</p>
+
+    <section>
+        <h2>Channel status</h2>
+        <dl>
+            <dt>Config</dt>
+            <dd>@FormatChannel(_snapshot.ConfigChannel)</dd>
+            <dt>Operational commands</dt>
+            <dd>@FormatChannel(_snapshot.CommandChannel)</dd>
+        </dl>
+    </section>
+
+    <section>
+        <h2>Config projections</h2>
+        @if (_snapshot.ConfigTargets.Count == 0)
+        {
+            <p>No Config projection has been received.</p>
+        }
+        else
+        {
+            @foreach (var config in _snapshot.ConfigTargets)
+            {
+                <article>
+                    <h3>@config.TargetKey</h3>
+                    <dl>
+                        <dt>ConfigGeneration</dt><dd>@config.ConfigGeneration</dd>
+                        <dt>ConfigDigest</dt><dd><code>@(config.ConfigDigest ?? "not provided")</code></dd>
+                        <dt>Result</dt><dd>@config.Result.Status / @config.Result.Code</dd>
+                    </dl>
+
+                    <table>
+                        <thead><tr><th>Key</th><th>Effective value</th><th>Impact</th><th>Mutability</th></tr></thead>
+                        <tbody>
+                        @foreach (var entry in config.Entries)
+                        {
+                            <tr>
+                                <td><code>@entry.Key</code></td>
+                                <td><code>@(entry.Redacted ? "[redacted]" : entry.EffectiveValueJson ?? "[not provided]")</code></td>
+                                <td>@entry.Impact</td>
+                                <td>@entry.Mutability</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                    <p>Edits are prepared against this exact generation. Returning a value to an earlier setting is a new change request, not Undo.</p>
+                </article>
+            }
+        }
+    </section>
+
+    <section>
+        <h2>Tracked mutations</h2>
+        @if (_snapshot.Mutations.Count == 0)
+        {
+            <p>No Config change or state-changing operational command has been prepared.</p>
+        }
+        else
+        {
+            <table>
+                <thead><tr><th>Kind</th><th>Request</th><th>OperationId</th><th>State</th><th>Result</th><th>Generation</th><th>Effective step</th></tr></thead>
+                <tbody>
+                @foreach (var mutation in _snapshot.Mutations)
+                {
+                    <tr>
+                        <td>@mutation.Kind</td>
+                        <td>@mutation.RequestKind</td>
+                        <td><code>@mutation.OperationId</code></td>
+                        <td>@mutation.State</td>
+                        <td>@(mutation.ResultCode ?? "-")</td>
+                        <td>@FormatGeneration(mutation)</td>
+                        <td>@(mutation.EffectiveStep?.ToString() ?? "-")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </section>
+
+    <section>
+        <h2>Operational command catalog</h2>
+        @if (CommandCatalog.Descriptors.Count == 0)
+        {
+            <p>No Standard Protocol v1 command kinds are currently registered. Arbitrary command names, shell commands, scripts, and internal method calls remain disabled.</p>
+        }
+        else
+        {
+            <table>
+                <thead><tr><th>Command</th><th>Payload schema</th><th>Permission</th><th>Impact</th><th>State-changing</th></tr></thead>
+                <tbody>
+                @foreach (var descriptor in CommandCatalog.Descriptors)
+                {
+                    <tr>
+                        <td><code>@descriptor.CommandKind</code></td>
+                        <td><code>@descriptor.PayloadSchemaId @descriptor.PayloadSchemaMajor.@descriptor.PayloadSchemaMinor</code></td>
+                        <td><code>@descriptor.RequiredPermission</code></td>
+                        <td>@descriptor.ImpactClassification</td>
+                        <td>@descriptor.StateChanging</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </section>
+</main>
+
+@code {
+    private ManagementSnapshot _snapshot = default!;
+
+    protected override void OnInitialized()
+    {
+        _snapshot = ManagementStore.Snapshot;
+        ManagementStore.Changed += OnManagementChanged;
+    }
+
+    private void OnManagementChanged()
+    {
+        _snapshot = ManagementStore.Snapshot;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static string FormatChannel(ManagementChannelState channel)
+        => channel.ReasonCode is null ? channel.State.ToString() : $"{channel.State} ({channel.ReasonCode})";
+
+    private static string FormatGeneration(TrackedManagementMutation mutation)
+    {
+        var before = mutation.ExpectedBaseGeneration?.ToString() ?? "-";
+        var after = mutation.ResultingGeneration?.ToString() ?? "-";
+        return $"{before} -> {after}";
+    }
+
+    public void Dispose() => ManagementStore.Changed -= OnManagementChanged;
+}
