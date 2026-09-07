@@ -1,55 +1,53 @@
-using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using MachiVerse.Simulation.Core.Determinism;
 using MachiVerse.Simulation.Core.Persistence;
 
 internal static class PortableWorldExportSmoke
 {
-    [ModuleInitializer]
-    internal static void Initialize() => RunAsync().GetAwaiter().GetResult();
-
-    private static async Task RunAsync()
+    internal static async Task RunAsync()
     {
         var root = Path.Combine(Path.GetTempPath(), "machiverse-sim03-export-" + Guid.NewGuid().ToString("N"));
         try
         {
             var sourceSnapshot = Path.Combine(root, "source-snapshot");
-            Directory.CreateDirectory(Path.Combine(sourceSnapshot, "chunks"));
-            await File.WriteAllBytesAsync(Path.Combine(sourceSnapshot, "manifest.pb"), new byte[] { 1, 2, 3 });
-            await File.WriteAllBytesAsync(Path.Combine(sourceSnapshot, "chunks", "00000000.mvchunk"), new byte[] { 4, 5, 6 });
+            Directory.CreateDirectory(sourceSnapshot);
+            await File.WriteAllBytesAsync(Path.Combine(sourceSnapshot, "snapshot-payload.bin"), new byte[] { 1, 2, 3, 4 });
 
-            var exportFinal = Path.Combine(root, "MachiVerseWorldExportV1");
+            var exportFinal = Path.Combine(root, "portable-export");
             var export = PortableWorldExport.Prepare(exportFinal);
-            await PortableWorldExport.CopyCommittedSnapshotAsync(sourceSnapshot, export);
+            await PortableWorldExport.CopyDirectoryDurablyAsync(export, sourceSnapshot, "fixture/snapshot");
+            await PortableWorldExport.WriteArtifactDurablyAsync(export, "fixture/history.bin", new byte[] { 10, 11, 12 });
+            await PortableWorldExport.WriteArtifactDurablyAsync(export, "fixture/metadata.bin", new byte[] { 20, 21, 22 });
 
-            var segmentDigest = SHA256.HashData("segment-logical"u8);
-            var segmentPath = await PortableWorldExport.WriteHistorySegmentAsync(
-                export,
-                segmentIndex: 0,
-                records:
-                [
-                    new ExportHistoryRecord(2, SHA256.HashData("record-2"u8), new byte[] { 10, 11 }),
-                    new ExportHistoryRecord(3, SHA256.HashData("record-3"u8), new byte[] { 12, 13, 14 })
-                ],
-                segmentLogicalDigest: segmentDigest);
-            await PortableWorldExport.ValidateHistorySegmentFramingAsync(segmentPath, segmentDigest);
-            await PortableWorldExport.WriteManifestDurablyAsync(export, new byte[] { 20, 21, 22 });
+            var traversalRejected = false;
+            try
+            {
+                _ = PortableWorldExport.ResolveStagingPath(export, "../escape.bin");
+            }
+            catch (InvalidDataException ex) when (ex.Message == "persistence.export-path-invalid")
+            {
+                traversalRejected = true;
+            }
+            if (!traversalRejected)
+                throw new InvalidOperationException("Portable export staging must reject path traversal.");
 
             await PortableWorldExport.FinalizeValidatedAsync(
                 export,
-                async (candidate, cancellationToken) =>
+                static (stagingDirectory, _) =>
                 {
-                    if (!File.Exists(candidate.ManifestPath))
-                        throw new InvalidDataException("fixture.export-manifest-missing");
-                    if (!File.Exists(Path.Combine(candidate.SnapshotDirectory, "manifest.pb")))
+                    if (!File.Exists(Path.Combine(stagingDirectory, "fixture", "metadata.bin")))
+                        throw new InvalidDataException("fixture.export-metadata-missing");
+                    if (!File.Exists(Path.Combine(stagingDirectory, "fixture", "snapshot", "snapshot-payload.bin")))
                         throw new InvalidDataException("fixture.export-snapshot-missing");
-                    await PortableWorldExport.ValidateHistorySegmentFramingAsync(
-                        Path.Combine(candidate.HistoryDirectory, "00000000.mvlog"),
-                        segmentDigest,
-                        cancellationToken);
+                    if (!File.Exists(Path.Combine(stagingDirectory, "fixture", "history.bin")))
+                        throw new InvalidDataException("fixture.export-history-missing");
+                    return Task.CompletedTask;
                 });
 
-            PortableWorldImport.ValidateExportDirectoryShape(exportFinal);
+            if (!Directory.Exists(exportFinal) || Directory.Exists(export.StagingDirectory))
+                throw new InvalidOperationException("Validated portable export must publish atomically.");
+            if (File.Exists(Path.Combine(exportFinal, "export-manifest.pb")) ||
+                Directory.EnumerateFiles(exportFinal, "*.mvlog", SearchOption.AllDirectories).Any())
+                throw new InvalidOperationException("SIM-03 must not invent an unresolved export bundle format.");
 
             var persistenceRoot = Path.Combine(root, "persistence");
             var worldId = OpaqueId128.Parse("00000000000000000000000000000051");
@@ -66,8 +64,12 @@ internal static class PortableWorldExportSmoke
                 import,
                 static (exportDirectory, expectedWorldId, _) =>
                 {
-                    PortableWorldImport.ValidateExportDirectoryShape(exportDirectory);
-                    if (expectedWorldId.IsZero) throw new InvalidDataException("persistence.export-world-id-invalid");
+                    if (!Directory.Exists(exportDirectory))
+                        throw new InvalidDataException("persistence.export-missing");
+                    if (expectedWorldId.IsZero)
+                        throw new InvalidDataException("fixture.export-world-id-invalid");
+                    if (!File.Exists(Path.Combine(exportDirectory, "fixture", "metadata.bin")))
+                        throw new InvalidDataException("fixture.export-metadata-missing");
                     return Task.CompletedTask;
                 },
                 static async (_, staging, cancellationToken) =>
