@@ -1,7 +1,6 @@
 # Administration View Roadmap
 
 Status: Reconstructed from current design contracts  
-Phase 0 tracking: Issue #38  
 Implementation target branch: `administration-view`
 
 ## 1. Purpose
@@ -22,7 +21,18 @@ Primary sources:
 - `docs/protocols/schema/`
 - relevant `docs/design/phase4-*` implementation-ready contracts
 
-## 2. Delivery order
+## 2. Phase index
+
+| Phase | Goal | Tracking Issue | Depends on |
+|---|---|---:|---|
+| 0 | Architecture / Protocol Contract Complete | #38 | current design baseline |
+| 1 | Secure Administration Foundation | #62 | Phase 0 |
+| 2 | Observability | #63 | Phase 1 |
+| 3 | Config Management | #64 | Phase 2 |
+| 4 | Operational Control | #65 | Phase 3 |
+| 5 | Safety / Audit | #66 | Phase 4 |
+| 6 | Addon Management | #67 | Phase 5 |
+| 7 | Production Hardening | #68 | Phases 1–6 |
 
 The implementation order is intentionally:
 
@@ -72,6 +82,7 @@ Tracking: Issue #38
 
 ## Phase 1 — Secure Administration Foundation
 
+Tracking: Issue #62  
 Depends on: Phase 0
 
 ### Scope
@@ -96,6 +107,7 @@ Depends on: Phase 0
 
 ## Phase 2 — Observability
 
+Tracking: Issue #63  
 Depends on: Phase 1
 
 ### Scope
@@ -120,6 +132,7 @@ Depends on: Phase 1
 
 ## Phase 3 — Config Management
 
+Tracking: Issue #64  
 Depends on: Phase 2
 
 ### Scope
@@ -145,6 +158,7 @@ Depends on: Phase 2
 
 ## Phase 4 — Operational Control
 
+Tracking: Issue #65  
 Depends on: Phase 3
 
 ### Scope
@@ -168,6 +182,7 @@ Depends on: Phase 3
 
 ## Phase 5 — Safety / Audit
 
+Tracking: Issue #66  
 Depends on: Phase 4
 
 ### Scope
@@ -192,6 +207,7 @@ Depends on: Phase 4
 
 ## Phase 6 — Addon Management
 
+Tracking: Issue #67  
 Depends on: Phase 5
 
 ### Scope
@@ -218,6 +234,7 @@ Depends on: Phase 5
 
 ## Phase 7 — Production Hardening
 
+Tracking: Issue #68  
 Depends on: Phases 1–6
 
 ### Scope
