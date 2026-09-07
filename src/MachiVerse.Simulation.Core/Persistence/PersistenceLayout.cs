@@ -66,7 +66,7 @@ public static class PersistenceLayout
                 stream.Flush(flushToDisk: true);
             }
 
-            File.Move(temporary, paths.CurrentPath, overwrite: true);
+            DurableFileSystem.AtomicReplaceFile(temporary, paths.CurrentPath);
         }
         finally
         {
