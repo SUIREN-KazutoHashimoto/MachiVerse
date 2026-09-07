@@ -25,7 +25,7 @@ public sealed class AdminSessionStateTests
 
         Assert.IsTrue(state.Apply(wire));
         Assert.IsTrue(state.HasPermission("admin.health.read"));
-        Assert.IsFalse(state.HasPermission("general.admin"));
+        Assert.IsFalse(state.HasPermission("view.operation.administration"));
     }
 
     [TestMethod]
@@ -39,6 +39,40 @@ public sealed class AdminSessionStateTests
             SessionGeneration = 1,
             Status = SessionWireStatusV1.Active,
         };
+
+        Assert.ThrowsException<ProtocolValidationException>(() => state.Apply(wire));
+    }
+
+    [TestMethod]
+    public void Apply_RejectsNonCanonicalPermissionOrder()
+    {
+        var state = new AdminSessionState();
+        var wire = new AuthSessionStateV1
+        {
+            SessionId = Id(1),
+            AuthDomain = AuthDomainWireV1.AdminView,
+            SessionGeneration = 1,
+            Status = SessionWireStatusV1.Active,
+        };
+        wire.EffectivePermissions.Add("admin.log.read");
+        wire.EffectivePermissions.Add("admin.health.read");
+
+        Assert.ThrowsException<ProtocolValidationException>(() => state.Apply(wire));
+    }
+
+    [TestMethod]
+    public void Apply_RejectsDuplicatePermission()
+    {
+        var state = new AdminSessionState();
+        var wire = new AuthSessionStateV1
+        {
+            SessionId = Id(1),
+            AuthDomain = AuthDomainWireV1.AdminView,
+            SessionGeneration = 1,
+            Status = SessionWireStatusV1.Active,
+        };
+        wire.EffectivePermissions.Add("admin.health.read");
+        wire.EffectivePermissions.Add("admin.health.read");
 
         Assert.ThrowsException<ProtocolValidationException>(() => state.Apply(wire));
     }
