@@ -4,7 +4,9 @@ using System.Text;
 
 namespace MachiVerse.SimulationCore.Primitives;
 
-public interface IMvDcborValue;
+public interface IMvDcborValue
+{
+}
 
 public sealed record MvUnsigned(ulong Value) : IMvDcborValue;
 public sealed record MvNegative(long Value) : IMvDcborValue;
@@ -13,7 +15,9 @@ public sealed record MvText(string Value) : IMvDcborValue;
 public sealed record MvArray(IReadOnlyList<IMvDcborValue> Items) : IMvDcborValue;
 public sealed record MvMap(IReadOnlyList<KeyValuePair<IMvDcborValue, IMvDcborValue>> Entries) : IMvDcborValue;
 public sealed record MvBoolean(bool Value) : IMvDcborValue;
-public sealed record MvNull : IMvDcborValue;
+public sealed record MvNull : IMvDcborValue
+{
+}
 
 public static class MvDcbor
 {
