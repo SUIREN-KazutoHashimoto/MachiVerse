@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using Google.Protobuf;
 using MachiVerse.Protocol.V1;
 using MachiVerse.View.Protocol;
+using MachiVerse.View.Rendering;
 using MachiVerse.View.State;
 
 static ByteString Id(byte value) => ByteString.CopyFrom(Enumerable.Repeat(value, 16).ToArray());
@@ -114,4 +116,26 @@ var request = consumer.CreateResyncRequest(Id(10), forceFull: false);
 if (!request.HasClientBasisStep || request.ClientBasisStep != 21 || !request.HasClientContinuityToken)
     throw new InvalidOperationException("Resync request must use last confirmed basis/token.");
 
-Console.WriteLine("VIEW-02 smoke tests passed.");
+var extremeRecordIdA = Id(11).ToByteArray();
+var extremeRecordIdZ = Id(12).ToByteArray();
+var extremeRecords = new Dictionary<ProjectionRecordKey, ConfirmedProjectionRecord>
+{
+    [new ProjectionRecordKey("view.z-record.v1", Convert.ToHexStringLower(extremeRecordIdZ))] =
+        new("view.z-record.v1", extremeRecordIdZ, ulong.MaxValue, [1]),
+    [new ProjectionRecordKey("view.a-record.v1", Convert.ToHexStringLower(extremeRecordIdA))] =
+        new("view.a-record.v1", extremeRecordIdA, 1, [2])
+};
+var extremeSnapshot = new ConfirmedWorldSnapshot(
+    ulong.MaxValue,
+    Hash(13).ToByteArray(),
+    Hash(14).ToByteArray(),
+    extremeRecords);
+var sceneProjection = SceneProjectionModel.FromConfirmed(extremeSnapshot);
+if (sceneProjection.BasisStep != ulong.MaxValue.ToString(CultureInfo.InvariantCulture))
+    throw new InvalidOperationException("SceneProjectionModel must preserve uint64 basis step across the JavaScript boundary.");
+if (sceneProjection.Records[0].RecordSchemaId != "view.a-record.v1" || sceneProjection.Records[1].RecordSchemaId != "view.z-record.v1")
+    throw new InvalidOperationException("SceneProjectionModel records must use stable schema/id order.");
+if (sceneProjection.Records[1].RecordRevision != ulong.MaxValue.ToString(CultureInfo.InvariantCulture))
+    throw new InvalidOperationException("SceneProjectionModel must preserve uint64 record revision across the JavaScript boundary.");
+
+Console.WriteLine("VIEW-02/VIEW-03 smoke tests passed.");
