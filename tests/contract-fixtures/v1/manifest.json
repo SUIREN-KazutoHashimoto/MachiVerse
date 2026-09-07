@@ -10,11 +10,12 @@
     "mv-dcbor-basic",
     "domain-hash-basic",
     "entity-id-derivation",
-    "intent-id-derivation"
+    "intent-id-derivation",
+    "random-word64-basic"
   ],
   "pending_sets": [
     "mv-dcbor-full-type-matrix",
-    "random-order-vectors",
+    "order-vectors",
     "protobuf",
     "config",
     "persistence"
