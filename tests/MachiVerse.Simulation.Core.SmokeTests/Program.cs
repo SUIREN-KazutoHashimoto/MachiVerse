@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using MachiVerse.Simulation.Core.Configuration;
 using MachiVerse.Simulation.Core.Determinism;
 using MachiVerse.Simulation.Core.Persistence;
@@ -135,6 +136,73 @@ try
     {
         Require(await store.HasTableAsync(table), $"SIM-03 schema table missing: {table}");
     }
+
+    var initialContinuity = SHA256.HashData("initial-continuity"u8);
+    await store.InitializeWorldMetadataAsync(new WorldPersistenceMetadataSeed(
+        worldId,
+        PersistenceGeneration: 1,
+        seed,
+        initialContinuity,
+        ConfigGeneration: 1,
+        initial.Digest,
+        MasterGeneration: 1));
+
+    var initialAnchor = await store.ReadHistoryAnchorAsync();
+    Require(initialAnchor.Sequence == 0 && initialAnchor.Digest.All(static value => value == 0), "Initial history anchor must be sequence 0 / ZERO256.");
+
+    var operationId = OpaqueId128.Parse("00000000000000000000000000000020");
+    var operationDigest = SHA256.HashData("operation-payload"u8);
+    var normalizedPayloadDigest = SHA256.HashData("normalized-operation"u8);
+    var recordDigest = SHA256.HashData("history-record-1"u8);
+    var acceptedRecord = new HistoryRecordMaterial(
+        Sequence: 1,
+        PreviousRecordDigest: initialAnchor.Digest,
+        RecordType: "operation.accepted.v1",
+        PayloadSchemaId: "core.operation-accepted.v1",
+        PayloadSchemaMajor: 1,
+        PayloadSchemaMinor: 0,
+        PayloadBytes: [1, 2, 3, 4],
+        NormalizedPayloadDigest: normalizedPayloadDigest,
+        RecordDigest: recordDigest);
+
+    var accepted = await store.PersistAcceptedOperationAsync(operationId, operationDigest, acceptedRecord);
+    Require(accepted.Status == DurableAcceptanceStatus.Accepted && accepted.AcceptedSequence == 1, "Durable Operation acceptance failed.");
+    var anchorAfterAccept = await store.ReadHistoryAnchorAsync();
+    Require(anchorAfterAccept.Sequence == 1 && anchorAfterAccept.Digest.SequenceEqual(recordDigest), "History anchor must advance atomically with Operation acceptance.");
+
+    var duplicate = await store.PersistAcceptedOperationAsync(operationId, operationDigest, acceptedRecord);
+    Require(duplicate.Status == DurableAcceptanceStatus.Duplicate && duplicate.AcceptedSequence == 1, "Same OperationId/digest must resolve as duplicate without new history.");
+    Require((await store.ReadHistoryAnchorAsync()).Sequence == 1, "Duplicate acceptance must not append history.");
+
+    var mismatchRejected = false;
+    try
+    {
+        await store.PersistAcceptedOperationAsync(operationId, SHA256.HashData("different-payload"u8), acceptedRecord);
+    }
+    catch (InvalidDataException ex) when (ex.Message == "protocol.operation-payload-mismatch")
+    {
+        mismatchRejected = true;
+    }
+    Require(mismatchRejected, "Same OperationId with different digest must be rejected.");
+
+    var badChainRejected = false;
+    try
+    {
+        var secondOperation = OpaqueId128.Parse("00000000000000000000000000000021");
+        var badRecord = acceptedRecord with
+        {
+            Sequence = 2,
+            PreviousRecordDigest = new byte[32],
+            RecordDigest = SHA256.HashData("history-record-2"u8)
+        };
+        await store.PersistAcceptedOperationAsync(secondOperation, SHA256.HashData("operation-2"u8), badRecord);
+    }
+    catch (InvalidDataException ex) when (ex.Message == "persistence.history-previous-digest-mismatch")
+    {
+        badChainRejected = true;
+    }
+    Require(badChainRejected, "Broken history predecessor must reject the whole durable acceptance transaction.");
+    Require((await store.ReadHistoryAnchorAsync()).Sequence == 1, "Rejected acceptance must not advance history anchor.");
 }
 finally
 {
