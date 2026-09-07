@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace MachiVerse.Simulation.Core.Persistence;
 
-internal static partial class DurableFileSystem
+internal static class DurableFileSystem
 {
     private const uint MoveFileReplaceExisting = 0x00000001;
     private const uint MoveFileWriteThrough = 0x00000008;
@@ -71,16 +71,16 @@ internal static partial class DurableFileSystem
         }
     }
 
-    [LibraryImport("kernel32.dll", EntryPoint = "MoveFileExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [DllImport("kernel32.dll", EntryPoint = "MoveFileExW", SetLastError = true, CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool MoveFileEx(string existingFileName, string newFileName, uint flags);
+    private static extern bool MoveFileEx(string existingFileName, string newFileName, uint flags);
 
-    [LibraryImport("libc", EntryPoint = "open", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
-    private static partial int Open(string pathname, int flags, int mode);
+    [DllImport("libc", EntryPoint = "open", SetLastError = true)]
+    private static extern int Open([MarshalAs(UnmanagedType.LPUTF8Str)] string pathname, int flags, int mode);
 
-    [LibraryImport("libc", EntryPoint = "fsync", SetLastError = true)]
-    private static partial int Fsync(int fd);
+    [DllImport("libc", EntryPoint = "fsync", SetLastError = true)]
+    private static extern int Fsync(int fd);
 
-    [LibraryImport("libc", EntryPoint = "close", SetLastError = true)]
-    private static partial int Close(int fd);
+    [DllImport("libc", EntryPoint = "close", SetLastError = true)]
+    private static extern int Close(int fd);
 }
