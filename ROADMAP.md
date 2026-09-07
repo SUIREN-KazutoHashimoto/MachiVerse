@@ -55,7 +55,7 @@ Tracking: Issue #61
 - Phase 4 completion review を現行実装 baseline として明示する
 - 旧 architecture/protocol 文書に残る stale TBD を Phase 4 と整合させる
 - repository / component roadmap を本構成へ移行する
-- 旧 roadmap Issue #35〜#38 を新ロードマップへ移行する
+- component roadmap Issue #35〜#38 を `SIM-*` / `GW-*` / `VIEW-*` / `ADMIN-*` trackerへ移行する
 - `ImplementationWorkId` を保持した implementation Issue を依存順に起票可能な状態にする
 
 Exit gate:
@@ -220,6 +220,13 @@ component minimum flows -> INT-01 -> INT-02 -> INT-03
 - `docs/roadmap/administration-view.md`
 - `docs/roadmap/quality-integration.md`
 
+GitHub上のcomponent tracker:
+
+- #35 Simulation Core implementation
+- #36 Gateway implementation
+- #37 General View implementation
+- #38 Administration View implementation
+
 ## 7. Branch / PR 原則
 
 - Simulation Core implementation: `simulation` から作業 branch
@@ -249,10 +256,15 @@ component minimum flows -> INT-01 -> INT-02 -> INT-03
 
 ## 9. 旧 roadmap からの移行
 
-Issue #35〜#38 は、詳細設計 Phase 4 完了前の「Phase 0 設計確定」を追跡するために作られた。
+Issue #35〜#38 は当初、詳細設計 Phase 4 完了前の「Phase 0 設計確定」を追跡するために作られた。
 
-新ロードマップでは、それらの未完 checklist を新しい implementation scope として再解釈しない。
+現在はこれらをcloseせず、各componentのimplementation trackerとして継続利用する。
 
-Phase 4 ですでに確定済みの内容は再設計せず、必要な stale architecture/protocol 正本の同期だけを M0 で処理する。
+- #35: `SIM-01..SIM-15`
+- #36: `GW-01..GW-07`
+- #37: `VIEW-01..VIEW-05`
+- #38: `ADMIN-01..ADMIN-04`
 
-移行完了後、#35〜#38 は superseded として close 可能とする。
+旧Phase 0 checklistを新しいimplementation scopeとして再解釈しない。Phase 4ですでに確定済みの内容は再設計せず、stale architecture/protocol表現の同期だけをM0のbaseline normalizationとして扱う。
+
+Phase番号ベースで別系列のroadmap Issueを増やさず、実装作業は `ImplementationWorkId` 単位で追跡する。
