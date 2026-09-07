@@ -4,9 +4,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import tomllib
 from pathlib import Path
 
 from mv_dcbor import domain_hash, encode
+from persistence import current_pointer, u64be
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "contract-fixtures" / "v1"
@@ -145,6 +147,28 @@ def verify_order() -> None:
     assert actual == data["expected_order"], (actual, data["expected_order"])
 
 
+def verify_config_examples() -> None:
+    source = (ROOT / "docs" / "design" / "phase4-config-standard-examples.md").read_text(encoding="utf-8")
+    blocks = re.findall(r"```toml\n(.*?)```", source, flags=re.DOTALL)
+    assert len(blocks) == 4, f"expected 4 standard TOML examples, got {len(blocks)}"
+    parsed = [tomllib.loads(block) for block in blocks]
+    components = [document["meta"]["component"] for document in parsed]
+    assert components == ["simulation-core", "gateway", "general-view", "admin-view"]
+    for document in parsed:
+        assert document["meta"]["format"] == "machiverse-config"
+        assert document["meta"]["schema_version"] == "1.0"
+
+
+def verify_persistence() -> None:
+    data = load("persistence.json")
+    for vector in data["u64be"]:
+        assert u64be(vector["value"]).hex() == vector["hex"]
+    for vector in data["current_pointer"]:
+        actual = current_pointer(vector["generation"])
+        assert actual.decode("ascii") == vector["ascii"]
+        assert len(actual) == vector["length"] == 17
+
+
 def main() -> None:
     manifest = load("manifest.json")
     assert manifest["fixture_format"] == "machiverse-contract-fixtures"
@@ -156,6 +180,8 @@ def main() -> None:
     verify_identity_derivation()
     verify_random()
     verify_order()
+    verify_config_examples()
+    verify_persistence()
     print("contract fixtures v1: PASS")
 
 
