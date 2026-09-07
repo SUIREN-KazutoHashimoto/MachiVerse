@@ -93,7 +93,7 @@ public sealed class PublicationConsumer(ConfirmedWorldStore store)
 
             foreach (var record in payload.Records)
             {
-                GatewayEnvelopeCodec.ValidateStableToken(record.RecordSchemaId, nameof(record.RecordSchemaId));
+                ValidateStableToken(record.RecordSchemaId, "record_schema_id");
                 ValidateId128(record.RecordId, "record_id");
                 var key = new ProjectionRecordKey(record.RecordSchemaId, Convert.ToHexStringLower(record.RecordId.Span));
                 if (!seen.Add(key)) throw new InvalidDataException("protocol.duplicate-projection-record");
@@ -190,4 +190,13 @@ public sealed class PublicationConsumer(ConfirmedWorldStore store)
         if (value.Length != 16 || value.Span.ToArray().All(static b => b == 0))
             throw new InvalidDataException($"protocol.invalid-id128:{field}");
     }
+
+    private static void ValidateStableToken(string value, string field)
+    {
+        if (value.Length is < 1 or > 64 || !IsTokenStart(value[0]) || value.Any(static c => !IsTokenChar(c)))
+            throw new InvalidDataException($"protocol.invalid-stable-token:{field}");
+    }
+
+    private static bool IsTokenStart(char c) => c is >= 'a' and <= 'z' or >= '0' and <= '9';
+    private static bool IsTokenChar(char c) => IsTokenStart(c) || c is '.' or '_' or '/' or '-';
 }
