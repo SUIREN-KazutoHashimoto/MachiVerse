@@ -36,7 +36,7 @@ public sealed partial class SqlitePersistenceStore
         ArgumentNullException.ThrowIfNull(terminalOperations);
 
         var orderedTerminalOperations = terminalOperations
-            .OrderBy(static item => item.OperationId.ToString(), StringComparer.Ordinal)
+            .OrderBy(static item => item.OperationId)
             .ToArray();
 
         if (orderedTerminalOperations.Select(static item => item.OperationId).Distinct().Count() != orderedTerminalOperations.Length)
@@ -51,16 +51,20 @@ public sealed partial class SqlitePersistenceStore
         using var transaction = _connection.BeginTransaction();
         try
         {
-            var currentFinalizedStep = await ReadFinalizedStepAsync(transaction, cancellationToken);
-            if (currentFinalizedStep != effectiveStep)
+            var transitionHead = await ReadTransitionHeadAsync(transaction, cancellationToken);
+            if (transitionHead.FinalizedStep != effectiveStep)
                 throw new InvalidDataException("persistence.transition-base-step-mismatch");
 
-            var anchor = await ReadHistoryAnchorAsync(transaction, cancellationToken);
-            if (anchor.Sequence == ulong.MaxValue) throw new OverflowException("HistorySequence cannot wrap.");
-            if (history.Sequence != anchor.Sequence + 1)
-                throw new InvalidDataException("persistence.history-sequence-gap");
-            if (!CryptographicOperations.FixedTimeEquals(history.PreviousRecordDigest, anchor.Digest))
-                throw new InvalidDataException("persistence.history-previous-digest-mismatch");
+            var context = await ReadHistoryContextAsync(transaction, cancellationToken);
+            ValidateNextHistoryRecord(history, context);
+
+            var expectedContinuity = HistoryIntegrity.ComputeTransitionContinuityToken(
+                context.WorldId,
+                resultingStep,
+                transitionHead.StateContinuityToken,
+                history.RecordDigest);
+            if (!CryptographicOperations.FixedTimeEquals(expectedContinuity, resultingStateContinuityToken))
+                throw new InvalidDataException("persistence.transition-continuity-token-mismatch");
 
             await InsertHistoryRecordAsync(history, transaction, cancellationToken);
 
@@ -126,14 +130,21 @@ WHERE singleton=1;
             configDigest);
     }
 
-    private async Task<ulong> ReadFinalizedStepAsync(SqliteTransaction transaction, CancellationToken cancellationToken)
+    private sealed record TransitionHead(ulong FinalizedStep, byte[] StateContinuityToken);
+
+    private async Task<TransitionHead> ReadTransitionHeadAsync(
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
     {
         await using var command = _connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT finalized_step FROM persistence_meta WHERE singleton=1;";
-        var value = await command.ExecuteScalarAsync(cancellationToken)
-            ?? throw new InvalidDataException("persistence.meta-not-initialized");
-        return U64Be.Decode((byte[])value);
+        command.CommandText = "SELECT finalized_step, state_continuity_token FROM persistence_meta WHERE singleton=1;";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            throw new InvalidDataException("persistence.meta-not-initialized");
+        var continuity = (byte[])reader[1];
+        RequireHash256(continuity, "state_continuity_token");
+        return new TransitionHead(U64Be.Decode((byte[])reader[0]), continuity);
     }
 
     private async Task CommitTerminalOperationAsync(
