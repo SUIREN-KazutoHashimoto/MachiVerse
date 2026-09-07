@@ -15,6 +15,7 @@ var configText = await bootstrapClient.GetStringAsync("config/general-view.toml"
 var viewConfig = GeneralViewConfigLoader.LoadText(configText);
 
 builder.Services.AddSingleton(viewConfig);
+builder.Services.AddSingleton(SceneProjectionAdapterRegistry.Empty);
 builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 builder.Services.AddScoped<GatewayProtocolClient>();
 builder.Services.AddScoped<ConfirmedWorldStore>();
