@@ -10,7 +10,7 @@ public sealed record PersistencePragmaSnapshot(
     int WalAutoCheckpoint,
     int BusyTimeout);
 
-public sealed class SqlitePersistenceStore : IAsyncDisposable
+public sealed partial class SqlitePersistenceStore : IAsyncDisposable
 {
     private readonly SqliteConnection _connection;
 
