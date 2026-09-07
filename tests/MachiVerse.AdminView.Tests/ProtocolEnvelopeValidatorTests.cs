@@ -19,6 +19,7 @@ public sealed class ProtocolEnvelopeValidatorTests
         var bytes = envelope.ToByteArray();
 
         _validator.ValidateNegotiated(envelope, bytes.Length, version, 7);
+        AdminMessageRegistry.EnsureDirection(envelope.MessageType, AdminMessageDirection.ClientToGateway);
     }
 
     [TestMethod]
@@ -40,6 +41,19 @@ public sealed class ProtocolEnvelopeValidatorTests
 
         Assert.ThrowsException<ProtocolValidationException>(() =>
             _validator.ValidateNegotiated(envelope, envelope.CalculateSize(), version, 7));
+    }
+
+    [TestMethod]
+    public void MessageRegistry_RejectsGatewayOnlyMessageAsClientOutbound()
+    {
+        Assert.ThrowsException<ProtocolValidationException>(() =>
+            AdminMessageRegistry.EnsureDirection("component.health.result", AdminMessageDirection.ClientToGateway));
+    }
+
+    [TestMethod]
+    public void MessageRegistry_AcceptsGatewayOnlyMessageAsInbound()
+    {
+        AdminMessageRegistry.EnsureDirection("component.health.result", AdminMessageDirection.GatewayToClient);
     }
 
     [TestMethod]
