@@ -10,9 +10,9 @@ public sealed class MonitoringProjectionStore : IMonitoringModuleBoundary
     private IReadOnlyList<AuditRecordProjection> _audit = Array.Empty<AuditRecordProjection>();
     private EnvelopeTraceProjection? _logPageTrace;
     private EnvelopeTraceProjection? _auditPageTrace;
-    private MonitoringChannelState _healthChannel = new(MonitoringAccessState.Available);
-    private MonitoringChannelState _logChannel = new(MonitoringAccessState.Available);
-    private MonitoringChannelState _auditChannel = new(MonitoringAccessState.Available);
+    private MonitoringChannelState _healthChannel = new(MonitoringAccessState.Unavailable, "not-loaded");
+    private MonitoringChannelState _logChannel = new(MonitoringAccessState.Unavailable, "not-loaded");
+    private MonitoringChannelState _auditChannel = new(MonitoringAccessState.Unavailable, "not-loaded");
 
     public event Action? Changed;
 
