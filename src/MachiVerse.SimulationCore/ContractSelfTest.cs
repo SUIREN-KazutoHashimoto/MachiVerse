@@ -63,6 +63,15 @@ public static class ContractSelfTest
             3);
         Assert(intentId.ToString() == "1060de0caa85e65a7e9088cc0631d728", "IntentId derivation vector");
 
+        var randomSeed = Convert.FromHexString("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+        var randomContext = new MvMap(new KeyValuePair<IMvDcborValue, IMvDcborValue>[]
+        {
+            new(new MvUnsigned(0), new MvText("test"))
+        });
+        var randomWord = AddressableRandom.RandomWord64(randomSeed, randomContext, 5, 0);
+        Assert(randomWord == 5_408_621_233_273_370_037UL, "RandomWord64 golden vector");
+        Assert(AddressableRandom.BoundedUnsigned(randomSeed, randomContext, 5, 10) < 10, "bounded random range");
+
         var scopeDigest = Hash256.Sha256("scope"u8);
         var earlier = new SameStepOrderKey(OrderPhase.ExternalInput, 0, scopeDigest, 0, intentId);
         var later = new SameStepOrderKey(OrderPhase.ScheduledInternal, 0, scopeDigest, -100, intentId);
