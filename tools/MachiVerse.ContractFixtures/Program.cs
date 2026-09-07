@@ -135,8 +135,8 @@ internal static partial class Program
 
     private static byte[] DomainHash(string label, ReadOnlySpan<byte> dcbor)
     {
+        Require(!label.Any(static c => c > 0x7f), $"DomainHash label must be ASCII: {label}");
         var labelBytes = Encoding.ASCII.GetBytes(label);
-        Require(labelBytes.Length == label.Length, $"DomainHash label must be ASCII: {label}");
         var preimage = new byte[labelBytes.Length + 1 + dcbor.Length];
         labelBytes.CopyTo(preimage, 0);
         preimage[labelBytes.Length] = 0;
@@ -170,7 +170,7 @@ internal static partial class Program
         {
             fixture_version = "1.0",
             world_seed_hex = new string('0', 64),
-            world_id_hex = new string('0', 32),
+            world_id_hex = new string('0', 31) + "1",
             simulation_step = 0,
             note = "Seed manifest for SIM-03 persistence fixture generation; no persistence binary authority is implied."
         };
