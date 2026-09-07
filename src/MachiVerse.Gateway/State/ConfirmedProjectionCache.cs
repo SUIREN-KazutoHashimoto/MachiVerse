@@ -25,6 +25,7 @@ public sealed class ContinuityMismatchException(string message) : Exception(mess
 public sealed class ConfirmedProjectionCache
 {
     private const int MaxChunkPayloadBytes = 1024 * 1024;
+    private const int ContinuityTokenBytes = 32;
     private const int PublicationFull = 1;
     private const int PublicationDelta = 2;
     private const int MutationUpsert = 1;
@@ -47,7 +48,7 @@ public sealed class ConfirmedProjectionCache
         if (kind == PublicationDelta)
         {
             if (current is null) throw new ContinuityMismatchException("protocol.continuity-mismatch:no-base-state");
-            if (!publication.HasBaseStateContinuityToken || !current.ContinuityToken.AsSpan().SequenceEqual(publication.BaseStateContinuityToken.Span))
+            if (!current.ContinuityToken.AsSpan().SequenceEqual(publication.BaseStateContinuityToken.Span))
                 throw new ContinuityMismatchException("protocol.continuity-mismatch:base-token");
         }
 
@@ -101,7 +102,8 @@ public sealed class ConfirmedProjectionCache
     private static void ValidatePublication(StatePublicationV1 publication, IReadOnlyCollection<StatePublicationChunkV1> chunks)
     {
         WireEnvelopeValidator.ValidateId128(publication.PublicationId, "publication_id", allowZero: false);
-        if (publication.StateContinuityToken.IsEmpty) throw new InvalidDataException("protocol.missing-continuity-token");
+        if (publication.StateContinuityToken.Length != ContinuityTokenBytes)
+            throw new InvalidDataException("protocol.invalid-continuity-token-length");
         if (publication.ProjectionSchemaDigest.Length != 32) throw new InvalidDataException("protocol.invalid-projection-schema-digest");
         if (publication.ChunkCount is 0 or > 65535) throw new InvalidDataException("protocol.invalid-chunk-count");
         if (chunks.Count != publication.ChunkCount) throw new InvalidDataException("protocol.incomplete-publication");
@@ -111,6 +113,8 @@ public sealed class ConfirmedProjectionCache
             throw new InvalidDataException("protocol.full-publication-has-base");
         if (kind == PublicationDelta && !publication.HasBaseStateContinuityToken)
             throw new InvalidDataException("protocol.delta-publication-missing-base");
+        if (kind == PublicationDelta && publication.BaseStateContinuityToken.Length != ContinuityTokenBytes)
+            throw new InvalidDataException("protocol.invalid-base-continuity-token-length");
         if (kind is not (PublicationFull or PublicationDelta))
             throw new InvalidDataException("protocol.publication-kind-unspecified");
 
