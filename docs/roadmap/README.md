@@ -124,16 +124,15 @@ component minimum viable flow -> INT-01 -> INT-02 -> INT-03
 
 正確な依存条件は `phase4-implementation-work-breakdown.md` の各 package 定義を参照します。
 
-## 7. コンポーネント別ロードマップ Issue
+## 7. ロードマップ Issue
 
-既存 roadmap Issue を実装追跡 Issue として再利用します。
+既存 roadmap Issue を component 実装追跡 Issue として再利用し、QA / Integration を追加しました。
 
 - #35: Simulation Core — `SIM-01..SIM-15`
 - #36: Gateway — `GW-01..GW-07`
 - #37: General View — `VIEW-01..VIEW-05`
 - #38: Administration View — `ADMIN-01..ADMIN-04`
-
-QA / Integration は別 roadmap Issue で `QA-01..QA-04` / `INT-01..INT-03` を追跡します。
+- #69: QA / Integration — `QA-01..QA-04`, `INT-01..INT-03`
 
 ## 8. Platform baseline
 
@@ -185,12 +184,12 @@ component 間で compiled DTO / shared runtime DLL を契約 authority として
 各 implementation package は、少なくとも次を満たして完了とします。
 
 - package scope を満たす
--依存する design / schema contract に適合する
+- 依存する design / schema contract に適合する
 - package に紐づく acceptance test が通る
 - component independence を破壊しない
 - deterministic / security / persistence / protocol semantics を silent に変更しない
--必要な test fixture / diagnostic / observability を含む
--対象 component branch への PR が review / required checks を通過する
+- 必要な test fixture / diagnostic / observability を含む
+- 対象 component branch への PR が review / required checks を通過する
 
 ## 11. 設計変更が必要になった場合
 
