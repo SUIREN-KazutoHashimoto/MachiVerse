@@ -15,7 +15,7 @@ public static class Sim03DurabilitySmoke
         var orderKey = new SameStepOrderKey(
             phase: 1,
             domainRank: 1,
-            scopeDigest: SHA256.HashData("sim03-scope"u8),
+            conflictScopeDigest: SHA256.HashData("sim03-scope"u8),
             semanticPriority: 0,
             intentId: operationId).ToDatabaseBytes();
 
