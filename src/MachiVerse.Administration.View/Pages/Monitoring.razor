@@ -1,6 +1,6 @@
 @page "/monitoring"
 @implements IDisposable
-@inject IMonitoringModuleBoundary Monitoring
+@inject IMonitoringModuleBoundary MonitoringStore
 
 <PageTitle>Monitoring - MachiVerse Administration</PageTitle>
 
@@ -142,13 +142,13 @@
 
     protected override void OnInitialized()
     {
-        _snapshot = Monitoring.Snapshot;
-        Monitoring.Changed += OnMonitoringChanged;
+        _snapshot = MonitoringStore.Snapshot;
+        MonitoringStore.Changed += OnMonitoringChanged;
     }
 
     private void OnMonitoringChanged()
     {
-        _snapshot = Monitoring.Snapshot;
+        _snapshot = MonitoringStore.Snapshot;
         _ = InvokeAsync(StateHasChanged);
     }
 
@@ -165,5 +165,5 @@
         return parts.Count == 0 ? "-" : string.Join(" ", parts);
     }
 
-    public void Dispose() => Monitoring.Changed -= OnMonitoringChanged;
+    public void Dispose() => MonitoringStore.Changed -= OnMonitoringChanged;
 }
