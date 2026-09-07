@@ -254,4 +254,6 @@ finally
     if (Directory.Exists(persistenceRoot)) Directory.Delete(persistenceRoot, recursive: true);
 }
 
+await PortableWorldExportSmoke.RunAsync();
+
 Console.WriteLine("SIM-01/SIM-02/SIM-03 smoke tests passed.");
