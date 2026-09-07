@@ -1,0 +1,13 @@
+{
+  "protocol_hello": [
+    {
+      "name": "gateway-view-v1-minimal",
+      "message_type": "ProtocolHelloV1",
+      "hex": "0a0f6d762e676174657761792d76696577120208011a1470726f746f636f6c2e70726f746f6275662e7631221470726f746f636f6c2e70726f746f6275662e7631",
+      "protocol_id": "mv.gateway-view",
+      "supported_major": 1,
+      "provided_capability": "protocol.protobuf.v1",
+      "required_capability": "protocol.protobuf.v1"
+    }
+  ]
+}
