@@ -24,6 +24,13 @@ public sealed record ValidatedConfigChange(EffectiveCoreConfig Candidate, bool I
 
 public sealed class CoreConfigCoordinator
 {
+    private static readonly HashSet<string> AllowedMetaFields =
+    [
+        "meta.format",
+        "meta.schema_version",
+        "meta.component"
+    ];
+
     private EffectiveCoreConfig? _current;
 
     public EffectiveCoreConfig Current => _current ?? throw new InvalidOperationException("Core Config has not been initialized.");
@@ -104,9 +111,17 @@ public sealed class CoreConfigCoordinator
         RequireMeta(flat, "meta.schema_version", CoreConfigSchema.SchemaVersion);
         RequireMeta(flat, "meta.component", CoreConfigSchema.Component);
 
-        foreach (var key in flat.Keys.Where(static x => !x.StartsWith("meta.", StringComparison.Ordinal)))
+        foreach (var key in flat.Keys)
         {
-            if (!CoreConfigSchema.Fields.ContainsKey(key)) throw new InvalidDataException($"config.unknown-field:{key}");
+            if (key.StartsWith("meta.", StringComparison.Ordinal))
+            {
+                if (!AllowedMetaFields.Contains(key))
+                    throw new InvalidDataException($"config.unknown-field:{key}");
+                continue;
+            }
+
+            if (!CoreConfigSchema.Fields.ContainsKey(key))
+                throw new InvalidDataException($"config.unknown-field:{key}");
         }
 
         var fields = new Dictionary<string, object>(StringComparer.Ordinal);
