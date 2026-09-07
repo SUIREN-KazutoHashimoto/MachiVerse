@@ -23,7 +23,7 @@ public static class PersistenceLayout
         if (generation == 0) throw new ArgumentOutOfRangeException(nameof(generation), "PersistenceGeneration starts at 1.");
 
         var worldDirectory = Path.Combine(Path.GetFullPath(root), "worlds", worldId.ToString());
-        var generationDirectory = Path.Combine(worldDirectory, "generations", generation.ToString("x16", CultureInfo.InvariantCulture));
+        var generationDirectory = GenerationDirectory(worldDirectory, generation);
         return new WorldPersistencePaths(
             Path.GetFullPath(root),
             worldDirectory,
@@ -43,6 +43,10 @@ public static class PersistenceLayout
     {
         if (generation == 0) throw new ArgumentOutOfRangeException(nameof(generation));
         Directory.CreateDirectory(paths.WorldDirectory);
+
+        var targetGenerationDirectory = GenerationDirectory(paths.WorldDirectory, generation);
+        if (!Directory.Exists(targetGenerationDirectory))
+            throw new InvalidDataException("persistence.current-generation-missing");
 
         var content = Encoding.ASCII.GetBytes(generation.ToString("x16", CultureInfo.InvariantCulture) + "\n");
         if (content.Length != CurrentLength) throw new InvalidOperationException("CURRENT canonical encoding must be exactly 17 bytes.");
@@ -81,8 +85,13 @@ public static class PersistenceLayout
             throw new InvalidDataException("CURRENT generation is not canonical lowercase hexadecimal.");
         if (!ulong.TryParse(text, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var generation) || generation == 0)
             throw new InvalidDataException("CURRENT references an invalid PersistenceGeneration.");
+        if (!Directory.Exists(GenerationDirectory(paths.WorldDirectory, generation)))
+            throw new InvalidDataException("persistence.current-generation-missing");
         return generation;
     }
+
+    private static string GenerationDirectory(string worldDirectory, ulong generation)
+        => Path.Combine(worldDirectory, "generations", generation.ToString("x16", CultureInfo.InvariantCulture));
 
     private static bool IsLowerHex(char c) => c is >= '0' and <= '9' or >= 'a' and <= 'f';
 }
