@@ -12,7 +12,7 @@ public enum OrderPhase : byte
 
 public readonly record struct SameStepOrderKey(
     OrderPhase Phase,
-    uint DomainRank,
+    ushort DomainRank,
     Hash256 ConflictScopeDigest,
     int SemanticPriority,
     Id128 IntentId) : IComparable<SameStepOrderKey>
