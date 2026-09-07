@@ -1,5 +1,7 @@
 # プロトコル設計方針
 
+Status: Complete / Standard Protocol v1 index
+
 ## 1. 目的
 
 本書はMachiVerseのcomponent間通信に共通する契約原則を定義する。
@@ -12,6 +14,22 @@ Phase 1共通契約の正本:
 - persistence / recovery / continuity: `docs/design/phase1-persistence-replay-recovery.md`
 - Operation scheduling / retry / dedup / Batch / failover: `docs/design/phase1-operation-lifecycle-retry-dedup.md`
 - Phase 1最終整合レビュー: `docs/design/phase1-cross-cutting-review.md`
+
+Phase 4 exact contract:
+
+- envelope / validation / transport / compatibility: `docs/design/phase4-protocol-schema.md`
+- payload / message semantics: `docs/design/phase4-protocol-payload-catalog.md`
+- browser auth / session / permission: `docs/design/phase4-auth-session-protocol.md`
+- internal component authentication: `docs/design/phase4-internal-component-auth-profile.md`
+- Standard Protocol v1 final resolution: `docs/protocols/phase4-resolution.md`
+- final cross-consistency: `docs/design/phase4-cross-consistency-resolution.md`
+
+Wire declaration:
+
+- `docs/protocols/schema/common.proto`
+- `docs/protocols/schema/auth.proto`
+- `docs/protocols/schema/payloads.proto`
+- `docs/protocols/schema/message-registry-v1.md`
 
 ## 2. 基本原則
 
@@ -28,7 +46,7 @@ Phase 1共通契約の正本:
 
 各componentは相手implementationなしでも独立build/test可能な境界を維持する。
 
-### 2.2 Protocol documentを契約正本とする
+### 2.2 Contract sourceを責務分離する
 
 各protocolは必要に応じ少なくとも次を明示する。
 
@@ -46,7 +64,14 @@ Phase 1共通契約の正本:
 - Operation / Batch identity
 - durability / custody scope
 
-physical transport / serializationは個別詳細設計で選択できるが、共通semanticを変更してはならない。
+Standard Protocol v1ではPhase 4でphysical transport / serializationまで確定済みである。
+
+- semantic validation、authority、security、ordering、retry/dedup: Phase 4 design文書。
+- protobuf field number/type、enum number、service signature: `docs/protocols/schema/*.proto`。
+- exact MessageType → payload mapping: `docs/protocols/schema/message-registry-v1.md`。
+- component境界overview: 本directoryのboundary文書。
+
+Generated C#/JavaScript/TypeScript等をcontract正本にしない。
 
 ## 3. Protocol owner
 
@@ -61,9 +86,20 @@ physical transport / serializationは個別詳細設計で選択できるが、�
 
 Ownerは公開message semantics、compatibility、version changeを管理し、利用側はownerのinternal implementationへ依存しない。
 
+Standard Protocol v1 transport profile:
+
+| ProtocolId | Transport | Serialization | Production authentication |
+|---|---|---|---|
+| `mv.core-gateway` | HTTP/2 gRPC bidirectional streaming | Protocol Buffers proto3 | mutual TLS |
+| `mv.gateway-gateway` | HTTP/2 gRPC bidirectional streaming | Protocol Buffers proto3 | mutual TLS |
+| `mv.gateway-view` | TLS WebSocket binary | Protocol Buffers proto3 | OIDC/BFF Gateway session |
+| `mv.gateway-admin-view` | TLS WebSocket binary | Protocol Buffers proto3 | OIDC/BFF Gateway session |
+
+Compression baselineは`NONE`、`wire.gzip.v1`はnegotiated optional capabilityとする。
+
 ## 4. Common envelope
 
-全標準protocolのnormal messageは論理的に `ProtocolEnvelopeV1` の意味を持つ。
+全標準protocolのnormal messageは論理的に `ProtocolEnvelopeV1` / wire上の `WireEnvelopeV1` の意味を持つ。
 
 共通field:
 
@@ -76,6 +112,8 @@ Ownerは公開message semantics、compatibility、version changeを管理し、�
 - sender ComponentInstanceId
 - optional WorldContextV1
 - optional OperationContextV1
+- payload schema id/version
+- compression
 - protocol-owned payload
 
 MessageId / CorrelationId / sender instance identityをworld ordering、dedup、random、EntityId生成へ使用しない。
@@ -95,6 +133,7 @@ ProtocolVersion {
 - 共通version不在はnormal connection reject。
 - normal messageはnegotiated versionを明示する。
 - negotiated Minorを超えるsemanticを無条件送信しない。
+- `.proto`のpublished field/enum numberをsame Major内で再利用・renumberしない。
 
 ## 6. Capability Negotiation
 
@@ -180,7 +219,7 @@ same OperationId + different immutable digestは `protocol.operation-payload-mis
 
 含めない:
 
-- ProtocolEnvelopeV1
+- ProtocolEnvelopeV1 / WireEnvelopeV1
 - MessageId / CorrelationId / CausationId
 - BatchId
 - MasterGeneration / NegotiationGeneration
@@ -190,6 +229,8 @@ same OperationId + different immutable digestは `protocol.operation-payload-mis
 - Gateway / Master candidate Step
 - Core final/effective Step
 - ACK / result metadata
+
+protobuf wire bytesをauthoritative immutable digestのcanonical sourceにしない。
 
 ## 11. World Time / generation context
 
@@ -249,6 +290,8 @@ auth.unauthenticated
 auth.unauthorized
 auth.session-expired
 auth.session-revoked
+auth.component-untrusted
+auth.component-identity-mismatch
 
 request.invalid
 request.conflict
@@ -371,6 +414,8 @@ Core-derived confirmed state chainは `StateContinuityToken` で識別する。
 
 Reconnect後はversion / Capability negotiationを再実行し、current confirmed basisへ同期してからnormal publicationへ戻る。
 
+FULL/DELTA/chunk/projection exact schemaは `docs/protocols/schema` と `docs/design/phase4-protocol-payload-catalog.md` を参照する。
+
 ## 18. Auth / Authorization
 
 - General View / Admin View auth domainを分離する。
@@ -380,7 +425,11 @@ Reconnect後はversion / Capability negotiationを再実行し、current confirm
 - CoreはUI roleを解釈せずcommon world-state invariantを維持する。
 - loginはconnected GatewayからMaster GatewayへproxyしMasterでfinalizeする。
 
-具体credential/token/IdPは個別auth詳細設計で決定する。
+Browser user authentication/sessionは `docs/design/phase4-auth-session-protocol.md` を正本とし、OIDC Authorization Code + PKCE S256 + Gateway BFFをstandard profileとする。
+
+Core↔Gateway / Gateway↔Gateway production component authenticationは `docs/design/phase4-internal-component-auth-profile.md` を正本とし、mutual TLSとservice identity bindingをrequiredとする。
+
+mTLS identityだけでMaster authorityを付与せず、MasterGeneration/role stateを別途検証する。
 
 ## 19. Failure / reconnect / recovery
 
@@ -397,6 +446,8 @@ Protocolは必要に応じ次を明示する。
 
 Core acceptance不明時はsame identity retryまたはOperationId status queryで収束させる。
 
+Certificate/trust rotationやinternal connection reauthenticationでもaccepted Operation identityを変更せず、同じ収束規則を使用する。
+
 ## 20. Independent testing
 
 各componentは相手implementationを必要とせず、少なくとも次をcontract test可能にする。
@@ -412,11 +463,15 @@ Core acceptance不明時はsame identity retryまたはOperationId status query�
 - ACKとterminal resultの分離
 - candidate/effective Step混同拒否
 - continuity mismatch resync
+- `.proto` schema compile / registry mapping
+- internal mTLS required / untrusted / identity mismatch / no downgrade
+
+P4-08 exact acceptanceは `docs/design/phase4-test-acceptance.md` と `docs/design/phase4-test-acceptance-addendum.md` を正本とする。
 
 ## 21. 禁止事項
 
 - component間code sharingをcommunication contractとすること
-- shared internal DTOへの依存
+- shared internal/generated DTOへの依存
 - direct method call
 - undocumented implicit behavior
 - Minor updateでsemantic compatibilityを破壊すること
@@ -430,19 +485,36 @@ Core acceptance不明時はsame identity retryまたはOperationId status query�
 - ACKをterminal world successと同一視すること
 - retryでOperationIdを再採番すること
 - terminal tombstoneをWorldId継続中にexpiryしてdouble apply可能にすること
+- generated codeだけを変更して`.proto`とwire contractを分岐させること
+- production internal auth失敗時にplaintext/server-only TLSへsilent downgradeすること
 
-## 22. 個別詳細設計へ残す事項
+## 22. Phase 4 resolution / implementation-local事項
 
-Phase 1共通semanticは確定済み。次は個別component / protocol実装詳細として残す。
+Phase 1/2時点で「詳細設計へ残す事項」とされていた次はPhase 4で解決済み。
 
 - concrete network transport
-- concrete serialization / compression
+- serialization / compression baseline
 - protocol-specific payload schema
 - state publication full/delta payload strategy
-- auth credential / session technology
-- exact operational timeout/backoff values
-- physical durable queue / dedup index implementation
-- additional addon protocol framework
+- browser auth credential / session technology
+- internal component authentication
+- exact role/permission matrix
+- heartbeat/role payload
+- Admin health/log/config/audit payload
 - schema tooling / code generation policy
 
-これらはPhase 1共通契約を変更してはならない。
+詳細なresolution tableは `docs/protocols/phase4-resolution.md` を正本とする。
+
+Implementation/deploymentへ残せるのは、protocol semanticsを変更しない次のphysical/local choiceである。
+
+- endpoint host/port。
+- exact operational timeout/backoff effective values（Config contract内）。
+- physical durable queue / dedup index layout。
+- package/generator patch version lock。
+- certificate issuer/private key storage/revocation provider。
+- telemetry backend/exporter deployment。
+- additional addon protocol frameworkの具体implementation。
+
+これらはPhase 1〜4のauthority、identity、security、determinism、retry/dedup、wire compatibilityを変更してはならない。
+
+Standard Protocol v1 unresolved design blocker: 0件。
