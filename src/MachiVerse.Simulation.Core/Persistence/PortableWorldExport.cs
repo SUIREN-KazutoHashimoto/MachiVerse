@@ -5,9 +5,10 @@ public sealed record PortableWorldExportPaths(
     string FinalDirectory);
 
 /// <summary>
-/// Durable staging and atomic publication boundary for the Phase 4 portable world export.
-/// The standard bundle layout/framing is defined by <see cref="PortableWorldBundleV1"/>; this
-/// helper supplies confined artifact paths and crash-safe physical publication.
+/// Format-neutral durable staging boundary for a future portable world export format.
+/// Phase 4 fixes that exports are built from a committed snapshot plus the required history
+/// range, but the concrete bundle schema/framing remains a design decision. This helper only
+/// provides confined staging, durable artifact writes, validation and atomic publication.
 /// </summary>
 public static class PortableWorldExport
 {
