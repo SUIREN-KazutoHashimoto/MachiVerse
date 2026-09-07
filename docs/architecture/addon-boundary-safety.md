@@ -1,337 +1,157 @@
 # アドオン境界・互換性・運用安全設計
 
-Status: Phase 0 contract complete
+Status: Architecture baseline / future extension boundary
 
-本書はQ255〜Q259とAdministration View Phase 0で確定したAddon boundary/trust/management semanticsを統合します。
+本書はQ255〜Q259で確定したAddon boundaryを維持し、Phase 4 production implementation scopeとの関係を明確化します。
 
 ## 1. Component-scoped Addon
 
-- Addonはcomponent単位で設定する。
-- Simulation Core、Gateway、General View、Admin Viewは自分の責務内でAddonを導入できる。
+- Addonはcomponent単位で設定可能とする。
+- Simulation Core、Gateway、General View、Admin Viewは、それぞれ自身の責務範囲でAddonを導入できる設計とする。
 - Addon導入によってcomponent間にdirect code dependency、shared internal type dependencyを作らない。
-- target componentがAddon lifecycle、Config、dependency、activation boundaryのownerとなる。
 
 ## 2. Standard Protocol boundary
 
-Standard ProtocolへAddon固有function payload、Addon専用generic command、arbitrary extension data areaを載せません。
+Standard component protocolには次を載せません。
 
-Standard Protocolに載せてよいAddon情報はconnection/operation safetyとmanagementに必要なmetadataです。
+- Addon functional payload
+- Addon-specific generic command
+- arbitrary extension data area
+- Addon都合で意味が変化するstandard message
 
-- installed inventory
-- identity/version
-- target component
-- required/provided Capability
-- dependency/version range
-- compatibility
-- trust/signature/digest state
-- install/update/disable/remove plan/result
-- activation/restart/persistent-data impact
+一方、接続安全性・互換性判断のために必要なAddon metadataは将来Standard Protocolで交換可能です。
 
-Addon固有cross-component functional communicationが必要な場合は、別のframework Addonとadditional protocolを成立させます。Standard Protocolをsilent extension channelとして使用しません。
+例:
 
-## 3. Addon identity
-
-Standard v1 minimum manifest metadata:
-
-- `addon_id`: reverse-DNS style stable identifier
-- `version`: SemVer 2.0.0
-- target component kinds
-- required protocol/version range
-- required/provided Capability
-- dependency addon/version range
-- Config schema version
-- persistent-data compatibility/migration declaration
-- artifact SHA-256 digest
-- publisher identity/signature metadata when present
-- trust source
-
-### 3.1 `addon_id`
-
-- lowercase ASCII reverse-DNS styleを推奨canonical formとする。
-- segmentは英小文字、数字、`-`を使用し、`.`で区切る。
-- comparisonはcase-sensitive canonical string comparisonとする。
-- display nameとは別identityとする。
-
-例: `jp.suiren.machiverse.example-addon`
-
-### 3.2 Version range
-
-Version operandはSemVer 2.0.0です。
-
-Standard v1 range grammarはportable comparator conjunctionとします。
-
-```text
-=1.2.3
->=1.2.0 <2.0.0
->=2.1.0
-<3.0.0
-```
-
-- comparator: `=`, `>`, `>=`, `<`, `<=`
-- whitespace区切りはAND
-- OR expressionはStandard v1では使用しない
-- empty rangeはinvalid
-
-## 4. Compatibility validation
-
-Addon activation前に少なくとも次を検証します。
-
-- target component kind/version
-- Standard Protocol compatibility
-- required Capability
-- provided Capability collision/contract
-- dependency Addon/version range
-- Config schema/validation
-- persistent-data compatibility/migration requirement
-
-required Capability、dependency、versionが不足/非互換ならAddonを有効化しません。
-
-## 5. Startup safety
-
-- Addon構成、dependency、Config、Capability、target compatibilityに不整合があればtarget componentをstandard startupしない。
-- 「重大な不整合」だけに限定しない。
-- incomplete/partial Addon stateで起動しない。
-- validation failure理由をoperatorが診断可能なstable codeで提示する。
-- 自動disableしてsilent degraded startupする挙動をstandardとしない。
-- saved worldが依存するAddon/version/Capabilityに不整合がある場合、explicit migrationが完全成功しない限りworld startupを拒否する。
-
-## 6. Administration View management boundary
-
-Administration ViewをStandard Addon managementのoperator入口とします。
-
-```text
-Administration View -> Gateway -> target component owner
-```
-
-Admin Viewはtarget component filesystemへ直接package copy/editしません。
-
-Standard management対象:
-
-- inventory
-- official catalog
-- staging metadata
-- compatibility/trust preflight
-- install
-- update
-- disable
-- remove
-- activation/restart boundary
-- result/audit
-
-Wire contractは `../protocols/gateway-admin-view.md` と `../protocols/schema/message-registry-v1.md` を正本とします。
-
-## 7. Trust tier
-
-Canonical trust tier:
-
-```text
-OFFICIAL
-THIRD_PARTY_LOCAL_TRUST
-THIRD_PARTY_UNKNOWN
-```
-
-- `THIRD_PARTY_LOCAL_TRUST`を`OFFICIAL`として表示/認可しない。
-- trust tierはpackage sourceだけで決めず、signature/trust-root validation resultに基づく。
-- unknown/unverified signatureをverified扱いしない。
-
-## 8. Official Addon distribution
-
-Official Addon store/catalogをstandard distribution routeとしてsupportします。
-
-Gateway Configは少なくとも次を持ちます。
-
-- official catalog/store endpoint
-- pinned official trust root/keyset
-- fetch/size/time limits
-- staging retention
-
-Admin ViewはGateway経由でcatalogを参照し、browserがstore responseを直接trust decisionに使用しません。
-
-## 9. Official verification
-
-Official package verification order:
-
-1. HTTPS transport success
-2. catalog/manifest signature verification
-3. Ed25519 signer chain to pinned official trust root
-4. artifact SHA-256 exact match
-5. manifest identity/version/target consistency
-6. dependency/Capability/protocol compatibility
-7. archive extraction safety
-8. target owner preflight
-
-failureはterminal rejectです。warning-onlyでofficial activationを続行しません。
-
-stable result code baseline:
-
-```text
-addon.signature-invalid
-addon.digest-mismatch
-addon.publisher-untrusted
-addon.manifest-invalid
-addon.incompatible-target
-addon.protocol-incompatible
-addon.capability-missing
-addon.dependency-unsatisfied
-addon.archive-unsafe
-addon.persistent-data-conflict
-```
-
-Hashだけをpublisher identity proofとしません。
-
-Official trust root rotationは、old trusted rootで署名されたkeyset update、またはexplicit high-impact相当のtrust-root Config changeで行います。
-
-## 10. Third-party Addon
-
-Third-party packageはoperator責任で導入可能ですが、officialと同等の保証を自動付与しません。
-
-Admin Viewはcommit前に少なくとも次を明示します。
-
-- THIRD-PARTY label
-- source
-- artifact SHA-256
-- signature presence / signer identity
-- local trust / unknown
-- target component
+- installed/known Addon identity
+- version
 - required/provided Capability
 - dependency
-- simulation impact
-- persistent-data/save impact
-- official verificationがないこと
+- compatibility status
 
-Third-party install/updateは常にhigh-impactであり、`admin.addon.manage.third-party` とhigh-impact confirmationを必須とします。
+Addon固有のcross-component functional communicationが必要な場合は、Standard Protocolそのものをgeneric extension channelにせず、別framework Addon/additional protocolとして明示的に成立させます。
 
-Local trusted signerで検証できても`THIRD_PARTY_LOCAL_TRUST`であり、`OFFICIAL`へ昇格しません。
+## 3. Compatibility
 
-## 11. Package staging
+各Addonは少なくとも次を検証可能な設計とします。
 
-package bytesはnormal Standard Protocol WebSocket messageへ載せません。
+- target component
+- target/protocol version compatibility
+- required Capability
+- provided Capability
+- dependency Addon/version
+- Addon Config consistency
 
-### Official
+具体的なAddon identifier lexical rule、version-range grammar、manifest/package formatは現時点のStandard implementation baselineでは固定しません。
 
-Gatewayがofficial catalog itemを解決し、staging areaへ取得します。validation完了前にexecutable Addon codeをloadしません。
+## 4. Startup safety
 
-### Third-party
+- Addon構成、dependency、Config、Capability、target compatibilityに不整合がある場合、target componentはstandard startupしない。
+- 不整合を「重大なものだけ」に限定しない。
+- incomplete/partial Addon apply stateで起動しない。
+- 検出した不整合をoperatorが診断可能にする。
+- 自動的にAddonをdisableしてsilent degraded startupすることをstandard挙動にしない。
+- saved worldが依存するAddon/version/Capabilityに不整合がある場合、explicit migrationが完全成功しない限りworld startupを拒否する。
 
-authenticated BFF HTTPS staging endpointを使用します。
+## 5. Update
 
-- required permission: `admin.addon.manage.third-party`
-- streaming upload
-- configured byte/count limits
-- Gateway computes SHA-256
-- opaque StagedPackageIdを返す
-- upload完了だけではinstall/executeしない
-- staged objectはconfigured retention後にexpire可能
+Addon updateはexplicit operationとします。
 
-## 12. Archive safety
-
-少なくとも次をrejectします。
-
-- `..` traversal
-- absolute path
-- extraction root外へのsymlink/hardlink escape
-- duplicate canonical path
-- case-fold collisionをtarget filesystem上で安全に扱えないpackage
-- configured file count/total size/single file size超過
-- malformed manifest/archive
-
-Validationはexecutable code load前に行います。
-
-Exact archive container formatはPhase 6 implementation前にmanifest/package versionとして固定し、Standard Protocol functional payloadとは分離します。
-
-## 13. Install / update / disable / remove lifecycle
-
-canonical operation state:
-
-```text
-STAGED -> VALIDATED -> PREPARED -> COMMITTED -> APPLY_PENDING -> APPLIED
-                         |             |
-                         +-> REJECTED  +-> FAILED
-```
-
-- install/update/disable/removeはexplicit operationとする。
-- compatibility/dependency/Config/persistent-data impactをprepare前に検証する。
-- high-impact actionはAdministration View high-impact confirmation contractに従う。
-- target ownerがterminal effectをacknowledgeするまでsuccessとしない。
-- existing versionをin-place partial updateしない。
-- apply failure時はprevious active versionを維持する。
-- install stateとactivation stateを区別する。
-
-## 14. Activation boundary
-
-- live activationはAddonがexplicit safe-step contractを宣言し、target ownerがsupportする場合のみ許可する。
-- simulation-affecting Addon changeはauthoritative safe Simulation Stepまたはrestart boundaryでapplyする。
-- live activation contractがない場合はrestartを要求する。
-- world regeneration/migrationが必要な場合は通常restartとして誤表示せず、required boundaryを明示する。
-
-## 15. Update
-
-Addon updateは明示的operationです。
-
-apply前に次を再検証します。
+apply前に少なくとも次を検証します。
 
 - target/protocol compatibility
 - required/provided Capability
 - dependency
 - Config impact
-- persistent-data migration
-- trust/signature/digest
-- required safe boundary
+- persistent-data/save impact
 
-updateでidentity/version/digest expectationが変わった場合、stale planを再利用しません。
+Simulationへ影響する変更はsafe Simulation Step、restart boundary等の整合性を保てるapply pointを使用します。
 
-## 16. Disable / remove
+Live update可能範囲、restart必須条件、migration方式は将来のAddon framework/package contractで固定します。
 
-Disable/remove前にdependencyとpersistent impactを確認します。
+## 6. Disable / remove
 
-- dependent Addonがある場合はdependency policyに従いrejectまたはexplicit migration planを要求する。
-- world/saveに由来dataが残る場合、silent deletionしない。
-- migration、retention、destructive data removalのいずれかをAddon contractが明示する。
-- destructive persistent-data removalが必要ならhigh-impact扱いとする。
+Addon disable/remove前にdependencyとpersistent impactを確認します。
 
-## 17. Retry / idempotency
+- dependent Addonへの影響
+- Configへの影響
+- save/world persistent dataへの影響
+- migration requirement
+- restart requirement
 
-- package/action retryで二重install/applyしない。
-- state-changing identityはOperationId + immutable payload digest。
-- same OperationId / different digestをrejectする。
-- MessageId/CorrelationId、PlanId、StagedPackageIdをOperation dedup identityにしない。
-- stale dependency/trust/inventory generationをsilent applyしない。
+World Stateやsave dataにAddon由来dataが残る場合、それをsilent deletionして整合性を壊しません。
 
-## 18. Audit
+具体的なretain/convert/delete方式は対象Addon contractまたは将来Addon framework仕様で定義します。
 
-少なくとも次をauditします。
+## 7. Official / third-party trust boundary
 
-- package staging metadata creation
-- official verification failure
-- install/update/disable/remove prepare/confirm/commit/result
-- permission reject
-- trust tier/result
-- target/boundary/resulting inventory generation
+MachiVerseはofficial Addonとthird-party Addonを区別する方針です。
 
-secret/credential/private key materialをaudit payloadに含めません。
+- third-party Addonへofficialと同等の保証を自動付与しない。
+- UIでofficial/third-party trust differenceを表示可能にする。
+- integrity verificationだけでpublisher identityが証明されたとみなさない。
+- third-partyであってもstandard component/protocol boundaryを黙って破壊してよいわけではない。
 
-## 19. Protocol extension framework
+Official store/distribution route、signature algorithm、hash algorithm、trust-root model、package metadata、failure policyのexact contractは現行Phase 4 production implementationでは未固定です。
 
-Addon-specific cross-component functional communicationのためのframework Addon/additional protocolは将来拡張です。
+これらを実装する場合はdesign amendmentとして先に正本を更新します。
 
-Phase 0では次のみ固定します。
+## 8. Administration Viewとの関係
 
-- Standard Protocolへgeneric functional extension fieldを追加しない。
-- additional protocolは明示的ProtocolId/version/Capability negotiationを持つ。
-- component independenceを維持する。
+Phase 2内部設計では`AddonManagementProjection`を将来拡張boundaryとして持ちます。
 
-具体API、transport、package extension pointはPhase 6以降の別設計事項であり、Administration View Phase 0 blockerではありません。
+現時点で確定しているpresentation boundary:
 
-## 20. Forbidden
+- installed/known Addon compatibility metadata表示
+- version/Capability/dependency mismatch表示
+- target component startup safety state表示
+- official/third-party trust classificationを表示可能なUI境界
 
-- Addon都合でStandard Protocol semanticをsilent変更すること
-- generic addon functional payload/command
+ただし、Phase 4 implementation work breakdownの`ADMIN-01..ADMIN-04`にはAddon install/update/disable/removeのstandard implementation packageはありません。
+
+したがってcurrent production implementationでは次を行いません。
+
+- generic arbitrary file upload APIの先行実装
+- Admin Viewからtarget filesystemへのdirect package copy
+- undefined runtime code-loading API
+-未登録Addon management Standard Protocol messageの独自追加
+
+Addon management implementationを追加する場合は、roadmap work packageとProtocol/package/security contractをdesign amendmentで先に確定します。
+
+## 9. Current implementation scopeとの関係
+
+`ADMIN-01..ADMIN-04`は次を実装対象とします。
+
+- Admin View scaffold / Gateway protocol client
+- health/metrics/log/audit UI
+- Config / operational command management
+- high-impact / simulation Admin Operation
+
+Addon managementはcurrent standard completion gateではありません。
+
+Gateway/View/Core側についても、Addon frameworkを未確定のgeneric extension mechanismとして実装しません。
+
+## 10. 未確定だがcurrent implementation blockerではない事項
+
+- component単位のAddon配置/enable方式
+- Addon identifier/version-range exact format
+- dependency declaration format
+- Addon framework responsibility/API
+- additional protocol establishment/transport
+- package/archive format
+- official store metadata/distribution
+- official/third-party signature/hash/trust-root details
+- Admin View install/update/disable/remove UX/API
+- persistent-data migration contract
+
+これらは現在の`ADMIN-01..ADMIN-04`を開始するためのblockerではありません。
+
+## 11. Forbidden
+
+- Addon都合でStandard Protocolの意味をsilent変更すること
+- Standard Protocolへのgeneric Addon functional payload/command
 - component間direct code/internal type dependency
-- unverified packageをOFFICIAL表示すること
-- hash一致のみでpublisher identityを保証すること
-- validation前のexecutable code load
-- partial in-place update
-- dependency/config inconsistencyを抱えたsilent degraded startup
-- upload完了をinstall successとみなすこと
-- Admin Viewからtarget filesystemをdirect editすること
-- third-party trustをofficialへ自動昇格すること
+- Addon inconsistencyを抱えたsilent degraded startup
+- incomplete Addon apply stateでstartupすること
+- Admin Viewからtarget internal API/filesystemへdirect fallbackすること
+-未確定Addon install APIをcurrent standard implementationとして先行実装すること
