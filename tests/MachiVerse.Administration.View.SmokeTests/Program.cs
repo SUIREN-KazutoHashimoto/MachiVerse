@@ -65,12 +65,46 @@ Assert(store.TryApply(Envelope("audit.page", "protocol.audit-page.v1", auditPage
 Assert(store.Snapshot.Audit.Count == 1);
 Assert(store.Snapshot.Logs.Count == 1); // diagnostic log and audit authority remain separate.
 
+var healthQuery = MonitoringQueryBuilder.BuildHealth([target], ["gateway.connection.count"]);
+Assert(healthQuery.Targets.Count == 1);
+Assert(healthQuery.MetricNames.Count == 1);
+
+var logQuery = MonitoringQueryBuilder.BuildLog(new LogQueryOptions(
+    Targets: [target],
+    FromUnixMillis: 1000,
+    ToUnixMillis: 2000,
+    EventKinds: ["gateway.fixture"],
+    CorrelationId: Id(3),
+    OperationId: Id(4),
+    BasisStep: 10,
+    PageSize: 200,
+    Cursor: null));
+Assert(logQuery.PageSize == 200);
+Assert(logQuery.HasCorrelationId);
+
+var auditQuery = MonitoringQueryBuilder.BuildAudit(new AuditQueryOptions(
+    FromUnixMillis: 1000,
+    ToUnixMillis: 2000,
+    AuditEventKinds: ["admin.fixture"],
+    OperationId: Id(4),
+    SimulationStep: 10,
+    PageSize: 200,
+    Cursor: null));
+Assert(auditQuery.PageSize == 200);
+Assert(auditQuery.HasOperationId);
+
+var csv = AuditExportFormatter.ToCsv(store.Snapshot.Audit);
+Assert(csv.Contains("admin.fixture", StringComparison.Ordinal));
+Assert(csv.Contains("gateway", StringComparison.Ordinal));
+
 store.SetChannelAccess(MonitoringChannel.Audit, MonitoringAccessState.Unauthorized, "auth.unauthorized");
 Assert(store.Snapshot.AuditChannel.State == MonitoringAccessState.Unauthorized);
 Assert(store.Snapshot.AuditChannel.ReasonCode == "auth.unauthorized");
 
 var mismatched = Envelope("component.log.page", "protocol.audit-page.v1", logPage);
 AssertThrows<InvalidDataException>(() => store.TryApply(mismatched));
+AssertThrows<ArgumentOutOfRangeException>(() => MonitoringQueryBuilder.BuildAudit(new AuditQueryOptions(
+    null, null, [], null, null, 0, null)));
 
 Console.WriteLine("ADMIN-02 smoke checks passed.");
 
