@@ -1,0 +1,18 @@
+{
+  "fixture_format": "machiverse-contract-fixtures",
+  "version": 1,
+  "work_id": "QA-01",
+  "implemented_sets": [
+    "stable-token",
+    "id128-width",
+    "hash256-width",
+    "sha256"
+  ],
+  "pending_sets": [
+    "mv-dcbor",
+    "domain-hash",
+    "protobuf",
+    "config",
+    "persistence"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "id128_valid_hex": [
+    "00000000000000000000000000000000",
+    "000102030405060708090a0b0c0d0e0f",
+    "ffffffffffffffffffffffffffffffff"
+  ],
+  "hash256_valid_hex": [
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  ],
+  "sha256": [
+    {
+      "name": "empty",
+      "input_hex": "",
+      "digest_hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "abc",
+      "input_hex": "616263",
+      "digest_hex": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    }
+  ]
+}
