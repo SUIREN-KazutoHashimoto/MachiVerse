@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -44,6 +45,7 @@ internal static partial class Program
         var root = Path.Combine(repoRoot, "tests", "contract-fixtures", "v1");
         VerifyStableTokens(Path.Combine(root, "stable-token-vectors.json"));
         VerifySha256(Path.Combine(root, "sha256-vectors.json"));
+        VerifyDeterminismVectors(Path.Combine(root, "determinism-vectors.json"));
         VerifyProtocolVersion(Path.Combine(root, "protobuf", "protocol-version-v1.json"));
         VerifySchemaFiles(repoRoot, Path.Combine(root, "schema-source-manifest.json"));
     }
@@ -70,6 +72,76 @@ internal static partial class Program
             var actual = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(vector.InputUtf8)));
             Require(string.Equals(actual, vector.ExpectedHex, StringComparison.Ordinal), $"SHA-256 mismatch for '{vector.Name}'.");
         }
+    }
+
+    private static void VerifyDeterminismVectors(string path)
+    {
+        var fixture = ReadJson<DeterminismFixture>(path);
+        foreach (var vector in fixture.Dcbor)
+        {
+            var actual = Convert.ToHexStringLower(EncodeReferenceDcbor(vector));
+            Require(string.Equals(actual, vector.ExpectedHex, StringComparison.Ordinal), $"MV-DCBOR mismatch for '{vector.Name}'.");
+        }
+
+        foreach (var vector in fixture.DomainHash)
+        {
+            var actual = Convert.ToHexStringLower(DomainHash(vector.Label, Convert.FromHexString(vector.DcborHex)));
+            Require(string.Equals(actual, vector.ExpectedHashHex, StringComparison.Ordinal), $"DomainHash mismatch for '{vector.Name}'.");
+        }
+
+        foreach (var vector in fixture.DerivedId)
+        {
+            var digest = DomainHash(vector.Label, Convert.FromHexString(vector.DcborHex));
+            var actual = Convert.ToHexStringLower(digest.AsSpan(0, 16));
+            Require(string.Equals(actual, vector.ExpectedTrunc128Hex, StringComparison.Ordinal), $"Derived 128-bit identity mismatch for '{vector.Name}'.");
+        }
+    }
+
+    private static byte[] EncodeReferenceDcbor(DcborVector vector)
+    {
+        return vector.Kind switch
+        {
+            "unsigned" when vector.UnsignedValue.HasValue => EncodeUnsigned(vector.UnsignedValue.Value),
+            "map-u-u" when vector.MapKey.HasValue && vector.MapValue.HasValue =>
+                [0xa1, .. EncodeUnsigned(vector.MapKey.Value), .. EncodeUnsigned(vector.MapValue.Value)],
+            _ => throw new InvalidDataException($"Unsupported reference MV-DCBOR fixture kind: {vector.Kind}")
+        };
+    }
+
+    private static byte[] EncodeUnsigned(ulong value)
+    {
+        if (value < 24) return [(byte)value];
+        if (value <= byte.MaxValue) return [0x18, (byte)value];
+        if (value <= ushort.MaxValue)
+        {
+            var bytes = new byte[3];
+            bytes[0] = 0x19;
+            BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(1), (ushort)value);
+            return bytes;
+        }
+        if (value <= uint.MaxValue)
+        {
+            var bytes = new byte[5];
+            bytes[0] = 0x1a;
+            BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(1), (uint)value);
+            return bytes;
+        }
+
+        var result = new byte[9];
+        result[0] = 0x1b;
+        BinaryPrimitives.WriteUInt64BigEndian(result.AsSpan(1), value);
+        return result;
+    }
+
+    private static byte[] DomainHash(string label, ReadOnlySpan<byte> dcbor)
+    {
+        var labelBytes = Encoding.ASCII.GetBytes(label);
+        Require(labelBytes.Length == label.Length, $"DomainHash label must be ASCII: {label}");
+        var preimage = new byte[labelBytes.Length + 1 + dcbor.Length];
+        labelBytes.CopyTo(preimage, 0);
+        preimage[labelBytes.Length] = 0;
+        dcbor.CopyTo(preimage.AsSpan(labelBytes.Length + 1));
+        return SHA256.HashData(preimage);
     }
 
     private static void VerifyProtocolVersion(string path)
@@ -133,6 +205,10 @@ internal static partial class Program
 
     private sealed record StableTokenFixture(List<string> Valid, List<string> Invalid);
     private sealed record Sha256Vector(string Name, string InputUtf8, string ExpectedHex);
+    private sealed record DeterminismFixture(List<DcborVector> Dcbor, List<DomainHashVector> DomainHash, List<DerivedIdVector> DerivedId);
+    private sealed record DcborVector(string Name, string Kind, ulong? UnsignedValue, ulong? MapKey, ulong? MapValue, string ExpectedHex);
+    private sealed record DomainHashVector(string Name, string Label, string DcborHex, string ExpectedHashHex);
+    private sealed record DerivedIdVector(string Name, string Label, string DcborHex, string ExpectedTrunc128Hex);
     private sealed record ProtocolVersionFixture(uint Major, uint Minor, string Base64);
     private sealed record SchemaSourceManifest(List<string> RequiredFiles);
 }
