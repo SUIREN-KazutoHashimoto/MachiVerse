@@ -20,7 +20,7 @@ public sealed record ConfirmedStateSnapshot(
     byte[] ProjectionSchemaDigest,
     IReadOnlyDictionary<ProjectionRecordKey, ConfirmedProjectionRecord> Records);
 
-public sealed class ContinuityMismatchException(string message) : InvalidDataException(message);
+public sealed class ContinuityMismatchException(string message) : Exception(message);
 
 public sealed class ConfirmedProjectionCache
 {
