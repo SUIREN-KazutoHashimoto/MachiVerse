@@ -62,7 +62,7 @@ public sealed class OperationalCommandCatalog
         {
             var valid = ch is >= 'a' and <= 'z'
                 || ch is >= '0' and <= '9'
-                || ch is '.' or '_' or '/' or '-';
+                || ch is '.' or '/' or '-';
             if (!valid)
             {
                 throw new InvalidDataException($"{fieldName} must be a StableToken.");
