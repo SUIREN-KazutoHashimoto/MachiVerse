@@ -254,6 +254,9 @@ finally
     if (Directory.Exists(persistenceRoot)) Directory.Delete(persistenceRoot, recursive: true);
 }
 
+SnapshotManifestSmoke.Run();
+await PersistenceSnapshotSmoke.RunAsync();
+await PersistenceMigrationSmoke.RunAsync();
 await PortableWorldExportSmoke.RunAsync();
 
 Console.WriteLine("SIM-01/SIM-02/SIM-03 smoke tests passed.");
