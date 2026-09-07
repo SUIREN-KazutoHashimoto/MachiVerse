@@ -25,6 +25,12 @@ public sealed class ContinuityMismatchException(string message) : InvalidDataExc
 public sealed class ConfirmedProjectionCache
 {
     private const int MaxChunkPayloadBytes = 1024 * 1024;
+    private const int PublicationFull = 1;
+    private const int PublicationDelta = 2;
+    private const int MutationUpsert = 1;
+    private const int MutationDelete = 2;
+    private const int CompressionNone = 1;
+    private const int CompressionGzip = 2;
     private ConfirmedStateSnapshot? _current;
 
     public ConfirmedStateSnapshot? Current => Volatile.Read(ref _current);
@@ -36,15 +42,16 @@ public sealed class ConfirmedProjectionCache
     {
         ValidatePublication(publication, chunks);
         var current = Current;
+        var kind = (int)publication.Kind;
 
-        if (publication.Kind == PublicationKindV1.PublicationKindDelta)
+        if (kind == PublicationDelta)
         {
             if (current is null) throw new ContinuityMismatchException("protocol.continuity-mismatch:no-base-state");
             if (!publication.HasBaseStateContinuityToken || !current.ContinuityToken.AsSpan().SequenceEqual(publication.BaseStateContinuityToken.Span))
                 throw new ContinuityMismatchException("protocol.continuity-mismatch:base-token");
         }
 
-        var records = publication.Kind == PublicationKindV1.PublicationKindFull
+        var records = kind == PublicationFull
             ? new Dictionary<ProjectionRecordKey, ConfirmedProjectionRecord>()
             : new Dictionary<ProjectionRecordKey, ConfirmedProjectionRecord>(current!.Records);
 
@@ -63,18 +70,17 @@ public sealed class ConfirmedProjectionCache
                 var key = new ProjectionRecordKey(record.RecordSchemaId, Convert.ToHexStringLower(record.RecordId.Span));
                 if (!seen.Add(key)) throw new InvalidDataException("protocol.duplicate-projection-record");
 
-                switch (record.MutationKind)
+                switch ((int)record.MutationKind)
                 {
-                    case ProjectionMutationKindV1.ProjectionMutationUpsert:
+                    case MutationUpsert:
                         records[key] = new ConfirmedProjectionRecord(
                             record.RecordSchemaId,
                             record.RecordId.ToByteArray(),
                             record.RecordRevision,
                             record.Payload.ToByteArray());
                         break;
-                    case ProjectionMutationKindV1.ProjectionMutationDelete:
-                        if (publication.Kind == PublicationKindV1.PublicationKindFull)
-                            throw new InvalidDataException("protocol.full-publication-delete");
+                    case MutationDelete:
+                        if (kind == PublicationFull) throw new InvalidDataException("protocol.full-publication-delete");
                         records.Remove(key);
                         break;
                     default:
@@ -100,11 +106,12 @@ public sealed class ConfirmedProjectionCache
         if (publication.ChunkCount is 0 or > 65535) throw new InvalidDataException("protocol.invalid-chunk-count");
         if (chunks.Count != publication.ChunkCount) throw new InvalidDataException("protocol.incomplete-publication");
 
-        if (publication.Kind == PublicationKindV1.PublicationKindFull && publication.HasBaseStateContinuityToken)
+        var kind = (int)publication.Kind;
+        if (kind == PublicationFull && publication.HasBaseStateContinuityToken)
             throw new InvalidDataException("protocol.full-publication-has-base");
-        if (publication.Kind == PublicationKindV1.PublicationKindDelta && !publication.HasBaseStateContinuityToken)
+        if (kind == PublicationDelta && !publication.HasBaseStateContinuityToken)
             throw new InvalidDataException("protocol.delta-publication-missing-base");
-        if (publication.Kind == PublicationKindV1.Unspecified)
+        if (kind is not (PublicationFull or PublicationDelta))
             throw new InvalidDataException("protocol.publication-kind-unspecified");
 
         var indices = new HashSet<uint>();
@@ -120,12 +127,12 @@ public sealed class ConfirmedProjectionCache
     private static byte[] DecodeChunk(StatePublicationChunkV1 chunk)
     {
         byte[] uncompressed;
-        switch (chunk.Compression)
+        switch ((int)chunk.Compression)
         {
-            case CompressionKindV1.CompressionKindNone:
+            case CompressionNone:
                 uncompressed = chunk.Payload.ToByteArray();
                 break;
-            case CompressionKindV1.CompressionKindGzip:
+            case CompressionGzip:
                 using (var source = new MemoryStream(chunk.Payload.ToByteArray(), writable: false))
                 using (var gzip = new GZipStream(source, CompressionMode.Decompress))
                 using (var output = new MemoryStream())
