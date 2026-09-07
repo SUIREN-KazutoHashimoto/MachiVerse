@@ -36,15 +36,24 @@ public readonly record struct Id128(ulong High, ulong Low)
             return false;
         }
 
-        Span<byte> bytes = stackalloc byte[ByteLength];
-        if (!Convert.TryFromHexString(text, bytes, out var written) || written != ByteLength)
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromHexString(text);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        if (bytes.Length != ByteLength)
         {
             return false;
         }
 
         value = new Id128(
-            BinaryPrimitives.ReadUInt64BigEndian(bytes[..8]),
-            BinaryPrimitives.ReadUInt64BigEndian(bytes[8..]));
+            BinaryPrimitives.ReadUInt64BigEndian(bytes.AsSpan(0, 8)),
+            BinaryPrimitives.ReadUInt64BigEndian(bytes.AsSpan(8, 8)));
         return allowZero || !value.IsZero;
     }
 
