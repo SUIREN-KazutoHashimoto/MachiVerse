@@ -67,7 +67,9 @@ public static class PersistenceGenerationMigration
         await validateStaging(migration.Staging, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
-        Directory.Move(migration.Staging.GenerationDirectory, migration.Target.GenerationDirectory);
+        DurableFileSystem.AtomicMoveDirectory(
+            migration.Staging.GenerationDirectory,
+            migration.Target.GenerationDirectory);
 
         // If CURRENT replacement fails, sourceGeneration remains authoritative. The finalized
         // target directory is retained as an orphan candidate for operator inspection/retry;
