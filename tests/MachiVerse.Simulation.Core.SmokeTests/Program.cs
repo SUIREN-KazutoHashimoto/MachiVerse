@@ -1,5 +1,6 @@
 using MachiVerse.Simulation.Core.Configuration;
 using MachiVerse.Simulation.Core.Determinism;
+using MachiVerse.Simulation.Core.Persistence;
 using MachiVerse.Simulation.Core.Runtime;
 
 static void Require(bool condition, string message)
@@ -99,4 +100,45 @@ catch (InvalidDataException)
 }
 Require(unknownRejected, "Unknown Config fields must be rejected.");
 
-Console.WriteLine("SIM-01/SIM-02 smoke tests passed.");
+Require(U64Be.Decode(U64Be.Encode(0)) == 0, "U64BE zero round-trip failed.");
+Require(U64Be.Decode(U64Be.Encode(ulong.MaxValue)) == ulong.MaxValue, "U64BE max round-trip failed.");
+Require(U64Be.Encode(1).AsSpan().SequenceCompareTo(U64Be.Encode(2)) < 0, "U64BE byte ordering must match unsigned ordering.");
+
+var persistenceRoot = Path.Combine(Path.GetTempPath(), "machiverse-sim03-" + Guid.NewGuid().ToString("N"));
+try
+{
+    var paths = PersistenceLayout.Resolve(persistenceRoot, worldId, 1);
+    PersistenceLayout.EnsureGenerationDirectories(paths);
+    Require(Path.GetFileName(paths.GenerationDirectory) == "0000000000000001", "PersistenceGeneration directory encoding mismatch.");
+
+    await PersistenceLayout.WriteCurrentAsync(paths, 1);
+    Require(new FileInfo(paths.CurrentPath).Length == 17, "CURRENT must be exactly 17 bytes.");
+    Require(PersistenceLayout.ReadCurrent(paths) == 1, "CURRENT generation round-trip failed.");
+
+    await using var store = await SqlitePersistenceStore.OpenOrCreateAsync(paths);
+    var pragmas = await store.ReadRequiredPragmasAsync();
+    Require(string.Equals(pragmas.JournalMode, "wal", StringComparison.OrdinalIgnoreCase), "SQLite journal_mode must be WAL.");
+    Require(pragmas.Synchronous == 2, "SQLite synchronous must be FULL.");
+    Require(pragmas.ForeignKeys == 1, "SQLite foreign_keys must be ON.");
+    Require(pragmas.WalAutoCheckpoint == 0, "SQLite wal_autocheckpoint must be disabled.");
+    Require(pragmas.BusyTimeout == 5000, "SQLite busy_timeout must be 5000ms.");
+
+    foreach (var table in new[]
+    {
+        "persistence_meta",
+        "history_record",
+        "operation_state",
+        "scheduled_operation",
+        "simulation_config_state",
+        "core_operational_state"
+    })
+    {
+        Require(await store.HasTableAsync(table), $"SIM-03 schema table missing: {table}");
+    }
+}
+finally
+{
+    if (Directory.Exists(persistenceRoot)) Directory.Delete(persistenceRoot, recursive: true);
+}
+
+Console.WriteLine("SIM-01/SIM-02/SIM-03 smoke tests passed.");
