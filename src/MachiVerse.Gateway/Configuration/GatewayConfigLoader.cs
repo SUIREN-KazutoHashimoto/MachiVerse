@@ -9,7 +9,8 @@ public static class GatewayConfigLoader
 
     public static GatewayConfig LoadText(string text)
     {
-        var model = Toml.ToModel(text);
+        var model = TomlSerializer.Deserialize<TomlTable>(text)
+            ?? throw new InvalidDataException("Config TOML could not be deserialized.");
         var meta = Table(model, "meta");
         RequireString(meta, "format", "machiverse-config");
         RequireString(meta, "schema_version", "1.0");
