@@ -6,6 +6,7 @@ namespace MachiVerse.AdminView.Session;
 
 public sealed class AdminSessionState
 {
+    private const int MaxPermissionCount = 1024;
     private IReadOnlySet<string> _permissions = new HashSet<string>(StringComparer.Ordinal);
 
     public event Action? Changed;
@@ -25,6 +26,30 @@ public sealed class AdminSessionState
             throw new ProtocolValidationException("Gateway returned a non-Admin auth domain to Administration View.");
         }
 
+        if (state.Status == SessionWireStatusV1.Unspecified)
+        {
+            throw new ProtocolValidationException("Gateway returned an unspecified Admin session status.");
+        }
+
+        if (state.EffectivePermissions.Count > MaxPermissionCount)
+        {
+            throw new ProtocolValidationException($"Admin session permissions exceed the {MaxPermissionCount} entry limit.");
+        }
+
+        var permissions = new HashSet<string>(StringComparer.Ordinal);
+        string? previous = null;
+        foreach (var permission in state.EffectivePermissions)
+        {
+            ProtocolEnvelopeValidator.ValidateStableToken(permission, "effective_permissions");
+            if (previous is not null && string.CompareOrdinal(previous, permission) >= 0)
+            {
+                throw new ProtocolValidationException("Admin session permissions must be strictly ASCII/ordinal ascending with no duplicates.");
+            }
+
+            permissions.Add(permission);
+            previous = permission;
+        }
+
         if (HasSession && state.SessionGeneration < SessionGeneration)
         {
             return false;
@@ -34,7 +59,7 @@ public sealed class AdminSessionState
         SessionGeneration = state.SessionGeneration;
         Status = state.Status;
         EffectiveRoleSet = state.EffectiveRoleSet;
-        _permissions = state.EffectivePermissions.ToHashSet(StringComparer.Ordinal);
+        _permissions = permissions;
         HasSession = true;
         Changed?.Invoke();
         return true;
