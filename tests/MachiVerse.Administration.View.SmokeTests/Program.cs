@@ -3,6 +3,9 @@ using MachiVerse.Administration.View.Modules.Monitoring;
 using MachiVerse.Protocol.V1;
 
 var store = new MonitoringProjectionStore();
+Assert(store.Snapshot.HealthChannel.State == MonitoringAccessState.Unavailable);
+Assert(store.Snapshot.LogChannel.State == MonitoringAccessState.Unavailable);
+Assert(store.Snapshot.AuditChannel.State == MonitoringAccessState.Unavailable);
 
 var target = new ComponentTargetV1
 {
@@ -102,6 +105,8 @@ Assert(csv.Contains("gateway", StringComparison.Ordinal));
 store.SetChannelAccess(MonitoringChannel.Audit, MonitoringAccessState.Unauthorized, "auth.unauthorized");
 Assert(store.Snapshot.AuditChannel.State == MonitoringAccessState.Unauthorized);
 Assert(store.Snapshot.AuditChannel.ReasonCode == "auth.unauthorized");
+store.SetChannelAccess(MonitoringChannel.Logs, MonitoringAccessState.Redacted, "security.redacted");
+Assert(store.Snapshot.LogChannel.State == MonitoringAccessState.Redacted);
 
 var mismatched = Envelope("component.log.page", "protocol.audit-page.v1", logPage);
 AssertThrows<InvalidDataException>(() => store.TryApply(mismatched));
