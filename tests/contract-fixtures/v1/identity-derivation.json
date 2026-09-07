@@ -1,0 +1,38 @@
+{
+  "entity_id": [
+    {
+      "name": "resident-birth",
+      "label": "mv.entity.v1",
+      "context": {
+        "world_id_hex": "000102030405060708090a0b0c0d0e0f",
+        "creation_step": 42,
+        "creator_domain": "resident",
+        "creator_entity_id_hex": "101112131415161718191a1b1c1d1e1f",
+        "creation_kind": "birth",
+        "local_ordinal": 7,
+        "nonce": 0
+      },
+      "encoded_hex": "a70050000102030405060708090a0b0c0d0e0f01182a02687265736964656e740350101112131415161718191a1b1c1d1e1f0465626972746805070600",
+      "domain_hash_hex": "1715d3bae14ddbc9372568e46698dc0e4ec1f08eefb4db2fd36f280fdc3e47dc",
+      "id128_hex": "1715d3bae14ddbc9372568e46698dc0e"
+    }
+  ],
+  "intent_id": [
+    {
+      "name": "external-physical-move",
+      "label": "mv.intent.v1",
+      "context": {
+        "world_id_hex": "000102030405060708090a0b0c0d0e0f",
+        "effective_step": 43,
+        "source_kind": 0,
+        "source_id_hex": "202122232425262728292a2b2c2d2e2f",
+        "domain": "physical_built",
+        "mutation_kind": "entity.move",
+        "local_ordinal": 3
+      },
+      "encoded_hex": "a70050000102030405060708090a0b0c0d0e0f01182b02000350202122232425262728292a2b2c2d2e2f046e706879736963616c5f6275696c74056b656e746974792e6d6f76650603",
+      "domain_hash_hex": "1060de0caa85e65a7e9088cc0631d7287394c7b4dd62d79c5a05b1087cbf8eac",
+      "id128_hex": "1060de0caa85e65a7e9088cc0631d728"
+    }
+  ]
+}
