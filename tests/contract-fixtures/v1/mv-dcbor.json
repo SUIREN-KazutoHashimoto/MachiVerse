@@ -1,0 +1,26 @@
+{
+  "vectors": [
+    {"name": "uint-0", "kind": "uint", "value": 0, "encoded_hex": "00"},
+    {"name": "uint-23", "kind": "uint", "value": 23, "encoded_hex": "17"},
+    {"name": "uint-24", "kind": "uint", "value": 24, "encoded_hex": "1818"},
+    {"name": "uint-255", "kind": "uint", "value": 255, "encoded_hex": "18ff"},
+    {"name": "uint-256", "kind": "uint", "value": 256, "encoded_hex": "190100"},
+    {"name": "bytes-000102", "kind": "bytes", "value_hex": "000102", "encoded_hex": "43000102"},
+    {"name": "stable-token", "kind": "text", "value": "mv.intent.v1", "encoded_hex": "6c6d762e696e74656e742e7631"},
+    {"name": "array-1-2-3", "kind": "array_uint", "value": [1, 2, 3], "encoded_hex": "83010203"},
+    {"name": "map-order", "kind": "map_uint_text", "value": {"1": "a", "0": 1}, "encoded_hex": "a20001016161"}
+  ],
+  "domain_hash_vectors": [
+    {
+      "name": "basic-context",
+      "label": "mv.test.v1",
+      "context": {
+        "id128_hex": "000102030405060708090a0b0c0d0e0f",
+        "step": 24,
+        "token": "core.world-state"
+      },
+      "encoded_hex": "a30050000102030405060708090a0b0c0d0e0f0118180270636f72652e776f726c642d7374617465",
+      "digest_hex": "0dadebbf1ed87eeb30698f9f07be9b3052ccb7e2e2f79939c1188673e873bb25"
+    }
+  ]
+}

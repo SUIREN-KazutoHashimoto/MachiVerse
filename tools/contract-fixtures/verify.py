@@ -6,6 +6,8 @@ import json
 import re
 from pathlib import Path
 
+from mv_dcbor import domain_hash, encode
+
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "contract-fixtures" / "v1"
 TOKEN_RE = re.compile(r"^[a-z0-9][a-z0-9._/-]{0,63}$", re.ASCII)
@@ -38,6 +40,38 @@ def verify_sha256() -> None:
         assert actual == vector["digest_hex"], vector["name"]
 
 
+def decode_fixture_value(vector: dict):
+    kind = vector["kind"]
+    if kind == "uint":
+        return vector["value"]
+    if kind == "bytes":
+        return bytes.fromhex(vector["value_hex"])
+    if kind == "text":
+        return vector["value"]
+    if kind == "array_uint":
+        return vector["value"]
+    if kind == "map_uint_text":
+        return {int(key): value for key, value in vector["value"].items()}
+    raise AssertionError(f"unknown fixture kind: {kind}")
+
+
+def verify_mv_dcbor() -> None:
+    data = load("mv-dcbor.json")
+    for vector in data["vectors"]:
+        actual = encode(decode_fixture_value(vector)).hex()
+        assert actual == vector["encoded_hex"], vector["name"]
+
+    for vector in data["domain_hash_vectors"]:
+        context = vector["context"]
+        value = {
+            0: bytes.fromhex(context["id128_hex"]),
+            1: context["step"],
+            2: context["token"]
+        }
+        assert encode(value).hex() == vector["encoded_hex"], vector["name"]
+        assert domain_hash(vector["label"], value).hex() == vector["digest_hex"], vector["name"]
+
+
 def main() -> None:
     manifest = load("manifest.json")
     assert manifest["fixture_format"] == "machiverse-contract-fixtures"
@@ -45,6 +79,7 @@ def main() -> None:
     verify_stable_tokens()
     verify_fixed_width()
     verify_sha256()
+    verify_mv_dcbor()
     print("contract fixtures v1: PASS")
 
 

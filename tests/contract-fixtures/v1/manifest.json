@@ -6,11 +6,13 @@
     "stable-token",
     "id128-width",
     "hash256-width",
-    "sha256"
+    "sha256",
+    "mv-dcbor-basic",
+    "domain-hash-basic"
   ],
   "pending_sets": [
-    "mv-dcbor",
-    "domain-hash",
+    "mv-dcbor-full-type-matrix",
+    "entity-intent-random-order-vectors",
     "protobuf",
     "config",
     "persistence"
