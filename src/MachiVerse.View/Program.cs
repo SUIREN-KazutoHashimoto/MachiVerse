@@ -1,0 +1,21 @@
+using MachiVerse.View;
+using MachiVerse.View.Configuration;
+using MachiVerse.View.Protocol;
+using MachiVerse.View.Rendering;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+
+var builder = WebAssemblyHostBuilder.CreateDefault(args);
+builder.RootComponents.Add<App>("#app");
+builder.RootComponents.Add<HeadOutlet>("head::after");
+
+var bootstrapClient = new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) };
+var configText = await bootstrapClient.GetStringAsync("config/general-view.toml");
+var viewConfig = GeneralViewConfigLoader.LoadText(configText);
+
+builder.Services.AddSingleton(viewConfig);
+builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
+builder.Services.AddScoped<GatewayProtocolClient>();
+builder.Services.AddScoped<ThreeRendererInterop>();
+
+await builder.Build().RunAsync();
