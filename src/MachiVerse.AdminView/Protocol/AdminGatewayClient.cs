@@ -59,6 +59,7 @@ public sealed class AdminGatewayClient(
             await SendBootstrapHelloAsync(cancellationToken);
             var response = await ReceiveEnvelopeAsync(_socket, cancellationToken);
             validator.ValidateBootstrap(response.Envelope, response.SerializedLength);
+            AdminMessageRegistry.EnsureDirection(response.Envelope.MessageType, AdminMessageDirection.GatewayToClient);
 
             switch (response.Envelope.MessageType)
             {
@@ -126,6 +127,11 @@ public sealed class AdminGatewayClient(
         if (!AdminMessageRegistry.TryGet(messageType, out var descriptor) || !string.Equals(descriptor.SchemaId, schemaId, StringComparison.Ordinal))
         {
             throw new ProtocolValidationException($"Message/schema pair '{messageType}'/'{schemaId}' is not in the canonical Admin registry.");
+        }
+
+        if (descriptor.Direction != AdminMessageDirection.ClientToGateway)
+        {
+            throw new ProtocolValidationException($"Message '{messageType}' is Gateway-to-Admin only and cannot be sent by Administration View.");
         }
 
         var messageId = NewId128();
@@ -209,6 +215,7 @@ public sealed class AdminGatewayClient(
             Payload = ByteString.CopyFrom(hello.ToByteArray()),
         };
 
+        AdminMessageRegistry.EnsureDirection(envelope.MessageType, AdminMessageDirection.ClientToGateway);
         var bytes = envelope.ToByteArray();
         validator.ValidateBootstrap(envelope, bytes.Length);
         await _socket.SendAsync(bytes, WebSocketMessageType.Binary, true, cancellationToken);
@@ -245,6 +252,7 @@ public sealed class AdminGatewayClient(
                 }
 
                 validator.ValidateNegotiated(received.Envelope, received.SerializedLength, NegotiatedVersion, NegotiationGeneration);
+                AdminMessageRegistry.EnsureDirection(received.Envelope.MessageType, AdminMessageDirection.GatewayToClient);
                 Dispatch(received.Envelope);
             }
         }
