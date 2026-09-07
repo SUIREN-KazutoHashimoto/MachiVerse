@@ -18,6 +18,11 @@ public sealed record MonitoringChannelState(
     MonitoringAccessState State,
     string? ReasonCode = null);
 
+public sealed record EnvelopeTraceProjection(
+    string? MessageId,
+    string? CorrelationId,
+    string? CausationId);
+
 public sealed record ManagementTargetProjection(
     string StableKey,
     string ComponentKind,
@@ -76,6 +81,8 @@ public sealed record MonitoringSnapshot(
     IReadOnlyList<ComponentHealthProjection> Health,
     IReadOnlyList<LogRecordProjection> Logs,
     IReadOnlyList<AuditRecordProjection> Audit,
+    EnvelopeTraceProjection? LogPageTrace,
+    EnvelopeTraceProjection? AuditPageTrace,
     MonitoringChannelState HealthChannel,
     MonitoringChannelState LogChannel,
     MonitoringChannelState AuditChannel);
