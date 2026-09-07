@@ -1,9 +1,13 @@
-name: Stage A .NET validation
+name: Foundation .NET validation
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - ci/stage-a-dotnet-validation
+      - develop
+    paths:
+      - .github/workflows/stage-a-dotnet-validation.yml
   pull_request:
     branches:
       - develop
@@ -14,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: stage-a-dotnet-validation-${{ github.ref }}
+  group: foundation-dotnet-validation-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -28,32 +32,32 @@ jobs:
         include:
           - work_id: QA-01
             label: contract-fixtures
-            ref: feature/qa-01-contract-fixtures
+            ref: develop
             project: tools/MachiVerse.ContractFixtures/MachiVerse.ContractFixtures.csproj
             smoke: tools/MachiVerse.ContractFixtures/MachiVerse.ContractFixtures.csproj
           - work_id: SIM-01
             label: simulation-core
-            ref: feature/sim-01-core-foundation
+            ref: simulation
             project: src/MachiVerse.Simulation.Core/MachiVerse.Simulation.Core.csproj
             smoke: tests/MachiVerse.Simulation.Core.SmokeTests/MachiVerse.Simulation.Core.SmokeTests.csproj
           - work_id: GW-01
             label: gateway
-            ref: feature/gw-01-gateway-foundation
+            ref: gateway
             project: src/MachiVerse.Gateway/MachiVerse.Gateway.csproj
             smoke: tests/MachiVerse.Gateway.SmokeTests/MachiVerse.Gateway.SmokeTests.csproj
           - work_id: VIEW-01
             label: general-view
-            ref: feature/view-01-protocol-client-foundation
+            ref: view
             project: src/MachiVerse.View/MachiVerse.View.csproj
             smoke: ""
           - work_id: ADMIN-01
             label: administration-view
-            ref: feature/admin-01-protocol-client-foundation
+            ref: administration-view
             project: src/MachiVerse.Administration.View/MachiVerse.Administration.View.csproj
             smoke: ""
 
     steps:
-      - name: Checkout ${{ matrix.work_id }}
+      - name: Checkout ${{ matrix.work_id }} integration branch
         uses: actions/checkout@v4
         with:
           ref: ${{ matrix.ref }}
