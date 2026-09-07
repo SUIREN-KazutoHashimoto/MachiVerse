@@ -25,4 +25,4 @@ public sealed class ConfirmedWorldStore
     public void ClearForWorldChange() => Volatile.Write(ref _current, null);
 }
 
-public sealed class ContinuityMismatchException(string message) : InvalidDataException(message);
+public sealed class ContinuityMismatchException(string message) : Exception(message);
