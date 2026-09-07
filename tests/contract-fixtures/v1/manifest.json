@@ -12,12 +12,12 @@
     "entity-id-derivation",
     "intent-id-derivation",
     "random-word64-basic",
-    "same-step-order"
+    "same-step-order",
+    "config-standard-examples",
+    "persistence-u64be-current"
   ],
   "pending_sets": [
     "mv-dcbor-full-type-matrix",
-    "protobuf",
-    "config",
-    "persistence"
+    "protobuf"
   ]
 }
