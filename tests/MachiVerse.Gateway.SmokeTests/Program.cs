@@ -177,4 +177,103 @@ catch (InvalidDataException)
 }
 if (!stalePolicyRejected) throw new InvalidOperationException("Stale scheduling policy generation must be rejected.");
 
-Console.WriteLine("GW-01/GW-02 smoke tests passed.");
+var localGatewayId = Id(60);
+var masterGatewayId = Id(61);
+var authority = new MasterAuthorityTracker(localGatewayId);
+authority.Apply(new MasterGenerationStateV1
+{
+    MasterGeneration = 1,
+    CurrentMasterGatewayId = masterGatewayId
+});
+if (authority.IsLocalMaster) throw new InvalidOperationException("Remote Master must not grant local Master authority.");
+authority.Apply(new MasterGenerationStateV1
+{
+    MasterGeneration = 2,
+    CurrentMasterGatewayId = masterGatewayId
+});
+var staleMasterRejected = false;
+try
+{
+    authority.Apply(new MasterGenerationStateV1
+    {
+        MasterGeneration = 1,
+        CurrentMasterGatewayId = masterGatewayId
+    });
+}
+catch (InvalidDataException ex) when (ex.Message == "master.stale-generation")
+{
+    staleMasterRejected = true;
+}
+if (!staleMasterRejected) throw new InvalidOperationException("Older MasterGeneration must be rejected.");
+
+var custody = new OperationCustodyLedger();
+var operationId = Id(70);
+var operationDigest = Hash(71);
+var held = custody.HoldSource(operationId, operationDigest);
+var duplicateHeld = custody.HoldSource(operationId, operationDigest);
+if (held.State != GatewayCustodyState.SourceHeld || custody.Records.Count != 1 || duplicateHeld.OperationIdHex != held.OperationIdHex)
+    throw new InvalidOperationException("Same Operation identity must converge to one SOURCE_HELD record.");
+
+var digestMismatchRejected = false;
+try
+{
+    custody.HoldSource(operationId, Hash(72));
+}
+catch (InvalidDataException ex) when (ex.Message == "protocol.operation-payload-mismatch")
+{
+    digestMismatchRejected = true;
+}
+if (!digestMismatchRejected) throw new InvalidOperationException("Same OperationId with different digest must be rejected.");
+
+var masterReceipt = new GatewayBatchAckV1
+{
+    BatchId = Id(73),
+    BatchDigest = Hash(74),
+    BatchStatus = (BatchWireStatusV1)1,
+};
+masterReceipt.Entries.Add(new BatchEntryAckV1
+{
+    OperationId = operationId,
+    CustodyState = (GatewayCustodyWireStateV1)2,
+});
+var masterReceived = custody.ApplyMasterAck(masterReceipt, 2, masterGatewayId, authority).Single();
+if (masterReceived.State != GatewayCustodyState.MasterReceived || !masterReceived.NeedsAuthoritativeConvergence)
+    throw new InvalidOperationException("MASTER_RECEIVED must remain distinct from Core durable acceptance.");
+
+var staleReceiptRejected = false;
+try
+{
+    custody.ApplyMasterAck(masterReceipt, 1, masterGatewayId, authority);
+}
+catch (InvalidDataException ex) when (ex.Message == "master.stale-generation")
+{
+    staleReceiptRejected = true;
+}
+if (!staleReceiptRejected || custody.Records.Single().State != GatewayCustodyState.MasterReceived)
+    throw new InvalidOperationException("Stale Master receipt must not advance custody.");
+
+var coreAccepted = custody.ApplyCoreStatus(new OperationStatusResultV1
+{
+    OperationId = operationId,
+    State = (OperationLifecycleWireStateV1)2,
+    OperationPayloadDigest = operationDigest,
+}, observedMasterGeneration: 2);
+if (coreAccepted.State != GatewayCustodyState.CoreAccepted || coreAccepted.NeedsAuthoritativeConvergence)
+    throw new InvalidOperationException("Core ACCEPTED must end uncertain delivery convergence without becoming terminal.");
+
+var terminal = custody.ApplyCoreStatus(new OperationStatusResultV1
+{
+    OperationId = operationId,
+    State = (OperationLifecycleWireStateV1)4,
+    OperationPayloadDigest = operationDigest,
+    TerminalResult = new ResultV1
+    {
+        Status = (ResultStatusV1)1,
+        Code = "ok",
+        RetryAdvice = (RetryAdviceV1)1,
+    },
+}, observedMasterGeneration: 2);
+if (terminal.State != GatewayCustodyState.Terminal || terminal.TerminalResult?.Code != "ok")
+    throw new InvalidOperationException("Terminal Core status must preserve terminal result and stop mutation delivery.");
+
+Console.WriteLine("GW-01/GW-02/GW-03 smoke tests passed.");
