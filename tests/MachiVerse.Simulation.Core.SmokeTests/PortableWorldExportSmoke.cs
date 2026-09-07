@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
 using MachiVerse.Simulation.Core.Determinism;
 using MachiVerse.Simulation.Core.Persistence;
@@ -15,38 +14,42 @@ internal static class PortableWorldExportSmoke
         {
             var sourceSnapshot = Path.Combine(root, "source-snapshot");
             Directory.CreateDirectory(Path.Combine(sourceSnapshot, "chunks"));
-            await File.WriteAllBytesAsync(Path.Combine(sourceSnapshot, "manifest.pb"), [1, 2, 3]);
-            await File.WriteAllBytesAsync(Path.Combine(sourceSnapshot, "chunks", "00000000.mvchunk"), [4, 5, 6]);
+            await File.WriteAllBytesAsync(Path.Combine(sourceSnapshot, "manifest.fixture"), [1, 2, 3]);
+            await File.WriteAllBytesAsync(Path.Combine(sourceSnapshot, "chunks", "chunk.fixture"), [4, 5, 6]);
 
-            var exportFinal = Path.Combine(root, "MachiVerseWorldExportV1");
+            var exportFinal = Path.Combine(root, "portable-export");
             var export = PortableWorldExport.Prepare(exportFinal);
-            await PortableWorldExport.CopyCommittedSnapshotAsync(sourceSnapshot, export);
+            await PortableWorldExport.CopyTreeDurablyAsync(export, sourceSnapshot, "state");
+            await PortableWorldExport.WriteArtifactDurablyAsync(export, "metadata/custom-format.bin", [20, 21, 22]);
+            await PortableWorldExport.WriteArtifactDurablyAsync(export, "history/range.custom", [30, 31, 32]);
 
-            var segmentDigest = SHA256.HashData("segment-logical"u8);
-            var segmentPath = await PortableWorldExport.WriteHistorySegmentAsync(
-                export,
-                segmentIndex: 0,
-                records:
-                [
-                    new ExportHistoryRecord(2, SHA256.HashData("record-2"u8), [10, 11]),
-                    new ExportHistoryRecord(3, SHA256.HashData("record-3"u8), [12, 13, 14])
-                ],
-                segmentLogicalDigest: segmentDigest);
-            await PortableWorldExport.ValidateHistorySegmentFramingAsync(segmentPath, segmentDigest);
-            await PortableWorldExport.WriteManifestDurablyAsync(export, [20, 21, 22]);
+            var traversalRejected = false;
+            try
+            {
+                PortableWorldExport.ResolveArtifactPath(export, "../escape.bin");
+            }
+            catch (InvalidDataException)
+            {
+                traversalRejected = true;
+            }
+            if (!traversalRejected)
+                throw new InvalidOperationException("Portable export boundary must reject path traversal.");
+
             await PortableWorldExport.FinalizeValidatedAsync(
                 export,
-                async (candidate, cancellationToken) =>
+                static (candidate, _) =>
                 {
-                    if (!File.Exists(candidate.ManifestPath))
-                        throw new InvalidDataException("persistence.export-manifest-missing");
-                    await PortableWorldExport.ValidateHistorySegmentFramingAsync(
-                        Path.Combine(candidate.HistoryDirectory, "00000000.mvlog"),
-                        segmentDigest,
-                        cancellationToken);
+                    if (!File.Exists(Path.Combine(candidate.StagingDirectory, "metadata", "custom-format.bin")))
+                        throw new InvalidDataException("fixture.export-metadata-missing");
+                    if (!File.Exists(Path.Combine(candidate.StagingDirectory, "state", "chunks", "chunk.fixture")))
+                        throw new InvalidDataException("fixture.export-state-missing");
+                    return Task.CompletedTask;
                 });
 
-            PortableWorldImport.ValidateExportDirectoryShape(exportFinal);
+            PortableWorldImport.ValidateBundleBoundary(exportFinal);
+            if (File.Exists(Path.Combine(exportFinal, "export-manifest.pb")) ||
+                Directory.EnumerateFiles(exportFinal, "*.mvlog", SearchOption.AllDirectories).Any())
+                throw new InvalidOperationException("SIM-03 must not invent the unresolved backup/export bundle format.");
 
             var persistenceRoot = Path.Combine(root, "persistence");
             var worldId = OpaqueId128.Parse("00000000000000000000000000000051");
@@ -63,8 +66,10 @@ internal static class PortableWorldExportSmoke
                 import,
                 static (exportDirectory, expectedWorldId, _) =>
                 {
-                    PortableWorldImport.ValidateExportDirectoryShape(exportDirectory);
+                    PortableWorldImport.ValidateBundleBoundary(exportDirectory);
                     if (expectedWorldId.IsZero) throw new InvalidDataException("persistence.export-world-id-invalid");
+                    if (!File.Exists(Path.Combine(exportDirectory, "metadata", "custom-format.bin")))
+                        throw new InvalidDataException("fixture.export-format-verification-failed");
                     return Task.CompletedTask;
                 },
                 static async (_, staging, cancellationToken) =>
