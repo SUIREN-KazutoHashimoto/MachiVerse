@@ -86,6 +86,32 @@ internal static class Sim03SnapshotCommitSmoke
         if ((await store.ReadHistoryAnchorAsync()).Sequence != 5)
             throw new InvalidOperationException("Snapshot catalog and snapshot.committed history must advance atomically.");
 
+        var registeredHistoryTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "world.genesis.v1",
+            "operation.accepted.v1",
+            "operation.scheduled.v1",
+            "transition.committed.v1",
+            "snapshot.committed.v1",
+        };
+        var historyIntegrity = await store.ValidateHistoryLinkChainAsync(registeredHistoryTypes);
+        if (historyIntegrity.LastSequence != 5 || historyIntegrity.RecordCount != 5)
+            throw new InvalidOperationException("Recovery history sequence/link validation did not reach the durable head.");
+
+        var selected = await store.SelectRecoverySnapshotAsync(
+            paths,
+            async (directory, candidate, cancellationToken) =>
+            {
+                var manifestPath = Path.Combine(directory, "manifest.pb");
+                if (!File.Exists(manifestPath)) throw new InvalidDataException("fixture.manifest-missing");
+                var actualManifestDigest = SHA256.HashData(await File.ReadAllBytesAsync(manifestPath, cancellationToken));
+                if (!CryptographicOperations.FixedTimeEquals(actualManifestDigest, candidate.PhysicalManifestDigest))
+                    throw new InvalidDataException("fixture.manifest-digest-mismatch");
+                await SnapshotChunkFile.ValidateAsync(Path.Combine(directory, "chunks", "00000000.mvchunk"), cancellationToken);
+            });
+        if (selected?.SnapshotId != snapshotId)
+            throw new InvalidOperationException("Recovery selection must choose the newest valid cataloged snapshot.");
+
         var orphanId = OpaqueId128.Parse("00000000000000000000000000000044");
         var orphan = SnapshotPhysicalStaging.Prepare(paths, orphanId);
         await SnapshotChunkFile.WriteAsync(
