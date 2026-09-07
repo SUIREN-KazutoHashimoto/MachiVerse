@@ -1,81 +1,206 @@
 # Admin操作・安全性設計
 
-## 確定方針
+Status: Phase 0 contract complete
 
-第235〜239問に加え、Q275による責務境界の明確化を適用する。
+本書はQ235〜Q239、Q275/Q276とAdministration View Phase 0設計を統合したAdmin操作の安全境界です。
 
-### Admin View操作の経路と妥当性確認
+## 1. Admin View操作の経路と責務
 
 - Admin ViewからSimulation Coreへ直接接続しない。
-- Admin View → Gateway → Simulation Core の経路に統一する。
-- Admin操作も明示的なOperationとして識別し、監査・追跡可能にする。
-- **Admin操作としての妥当性チェックはGatewayが担う。**
-- GatewayはAdmin操作について、認証・認可、操作形式、対象、Admin操作としての許可条件、プロトコル上の整合性等を確認したうえでCoreへ送る。
-- CoreはGeneral View / Admin ViewといったUI上のロール名を解釈してAdmin固有の権限判定を行わない。
-- 一方でCoreは、すべての状態遷移に共通する世界状態の不変条件、参照整合性、状態遷移として成立するかどうかを維持する責務を持つ。
-- したがって、GatewayがAdmin操作として許可したことだけを理由に、Coreが一般的な世界状態不変条件を破壊する操作を無条件で適用してはならない。
-- Coreが拒否する場合は「Admin権限がないから」ではなく、Coreが所有する一般的な世界状態・状態遷移上の理由による。
-- この責務分離はQ235をQ275で具体化したものである。
+- external management pathは `Admin View -> connected Gateway -> authoritative owner/component` とする。
+- Admin操作は明示的なOperation/change requestとして識別し、監査・追跡可能にする。
+- GatewayはAdmin authn/authz、permission、操作形式、対象、allowed condition、Protocol整合性を検証する。
+- target ownerは自身が所有するConfig consistency、dependency、safe boundaryを検証する。
+- CoreはGeneral/Admin ViewのUI roleを解釈せず、全状態遷移共通のWorld State invariant、参照整合性、deterministic scheduling contractを維持する。
+- GatewayがAdmin操作として許可したことだけを理由に、Coreが一般不変条件を破壊する操作を適用してはならない。
 
-### Admin操作とGeneral View操作の優先関係
+## 2. Admin操作とSimulation ordering
 
-- 基本は、操作種別ごとに明示的な優先規則・競合規則・適用World Time/Simulation Step・拒否条件を持ち、ネットワーク到着順には依存しない。
-- **シミュレーション結果に影響を与えないAdmin操作に限り、Admin操作を最優先としてよい。**
-- シミュレーション結果へ影響し得るAdmin操作については、単にAdmin由来であることを理由に無条件最優先としてはならない。
-- シミュレーション影響の有無の具体的分類は詳細設計で定義する。
+- network arrival order、Gateway thread order、browser/UI processing speedをworld resultの決定要因にしない。
+- simulation-affecting Admin Operationは既存Operation scheduling、MasterGeneration、candidate/effective Step contractに従う。
+- authoritative effective StepはCore/owner確定resultで返す。
+- Admin ViewはMaster routingを選ばず、connected Gatewayが既存authority contractに従ってrouteする。
 
-### 高影響Admin操作
+simulation-non-affecting operationのみAdmin優先実行を許容します。Phase 0 baseline:
 
-- 世界破壊、大量変更、時間操作、大規模Config変更等の高影響操作について、追加確認を要求する。
-- 高影響操作では、少なくとも要求内容、対象、実行主体、実行結果を監査可能にする。
-- 誤操作を起こしにくい設計を標準要件とする。
-- 高影響操作の具体的分類、確認方式、多者承認の要否等は現時点では固定しない。
+- health/metrics/log/audit read
+- protocol/session diagnostics
+- diagnostic snapshot creation
+- Gateway resync control
+- save creationそのものがlogical World Stateを変更しない範囲
 
-### Admin操作の監査履歴
+次はsimulation/system impactを持つため通常優先扱いにしません。
 
-Admin操作について、少なくとも以下を追跡可能にする。
+- simulation-affecting Config change
+- simulation Admin Operation
+- pause/resume/time-control
+- component restart/shutdown
+- Addon activation/deactivation/updateでsimulation/persistent stateへ影響するもの
 
-- 実行主体
-- Operation ID
-- 操作種別
-- 対象
-- 要求内容
-- 要求時点と適用World Time / Simulation Step
-- 実行結果
-- 拒否された場合の拒否理由
-- 関連するConfig変更
+## 3. High-impact classification
 
-監査情報は、必要に応じてリプレイ、障害調査、運用監査と関連付けられることを標準要件とする。
+Phase 0 baseline high-impact:
 
-### Undoを設けない方針
+- simulation-affecting Config change
+- world pause/resume/time-control family
+- component restart/shutdown
+- destructive/bulk world operationが将来追加された場合
+- simulation-affecting Addon install/update/disable/remove
+- persistent world/save compatibilityへ影響するAddon action
+- third-party Addon install/update
 
-- 所謂一般的なUndo機能は設けない。
-- 既に実行済みのAdmin操作を履歴から消して元に戻す仕組みは標準機能としない。
-- 元の設定や状態へ戻したい場合は、**元の値・状態へ戻すための新しいAdmin操作を別Operationとして実行する。**
-- その復元操作も通常のAdmin Operationとして認証・妥当性確認・Operation ID付与・監査記録の対象とする。
-- これにより、過去の因果関係と監査履歴を保持したまま、現時点から状態を変更する。
-- 保存点からの復旧やリプレイは、運用上の復旧手段として別概念であり、一般Undoとは扱わない。
+classificationはUI表示ではなくGateway permission/admissionで強制します。
 
-## Operation適用Stepとの関係
+## 4. High-impact prepare / confirm / commit
 
-Q276に従い、Gateway/Masterはプロトコル規則に従って候補となる適用時刻を形成し、Coreが現在のSimulation Step、deadline、Master generation、順序規則等から最終的な有効適用Stepを確定する。
+High-impact actionはordinary direct pathでterminal applyしません。
 
-Admin操作についても、シミュレーションへ影響する場合は通信到着順・処理速度をそのまま世界結果の決定要因にしない。
+canonical flow:
 
-## 決定論との関係
+```text
+Admin View -> Gateway: admin.action.prepare
+Gateway -> Admin View: admin.action.plan
+Admin View -> Gateway: admin.action.confirm
+Gateway -> Admin View: admin.action.confirmed
+Admin View -> Gateway: admin.action.commit
+Gateway -> Admin View: admin.action.result
+```
 
-- シミュレーション影響を持つAdmin操作は、同一の有効Operation集合・順序・適用Simulation Stepで同一結果となる決定論要件に従う。
-- Admin操作の到着時刻、Gatewayの処理スレッド順、通信速度等を世界結果の決定要因にしない。
-- シミュレーション非影響操作をAdmin最優先として扱う場合も、それが間接的に世界結果へ影響しないことを要件とする。
+### Plan
 
-## 今後決定が必要な事項
+Planはserver-generated immutable planning artifactです。
 
-- 「シミュレーションに影響しないAdmin操作」の具体的分類
-- Gateway側のAdmin妥当性ルールの具体的表現・管理方法
-- Coreが維持する一般的な世界状態不変条件の具体的一覧
-- 高影響操作の具体的分類
-- 高影響操作の確認UI・確認回数・承認要件
-- Admin Operationの監査保持期間と保存形式
-- Config変更を元に戻す操作の具体的プロトコル表現
-- 世界状態変更を元に近づける逆操作が存在する場合の操作定義
-- login以外のAdmin Core操作をMaster経由へ統一するかどうか
+最低限次をbindします。
+
+- PlanId / PlanDigest
+- ActionKind
+- OperationId / immutable payload digest
+- target
+- risk level
+- required permissions
+- simulation impact
+- required boundary
+- owner generation/dependency snapshot
+- warning codes
+- session generation
+- expiration
+- confirmation challenge identity / expiration
+
+### Confirmation
+
+- confirmation challenge/artifactはOperationIdとは別identity。
+- confirmationはserver-side plan/session stateへbindする。
+- confirmation artifactはexpiryを持つ。
+- commit成功またはterminal consumption後はsingle-useとして再利用不可。
+- confirmation artifactをcredentialやOperation dedup identityとして扱わない。
+- client-side booleanだけでhigh-impact confirmation成立とみなさない。
+
+### Commit
+
+Gatewayはcommit時に少なくとも次を再検証します。
+
+- plan existence / expiry
+- PlanDigest
+- confirmation existence / expiry / unused state
+- OperationId / immutable payload digest
+- active session / session generation
+- required permissions
+- target owner generation/state
+- dependency/trust snapshot
+- required safe boundary
+
+stale/expired stateは再prepareを要求し、old planをsilent applyしません。
+
+Phase 0 standardはsingle-operator confirmationです。multi-person approvalはStandard v1の必須条件ではなく、将来Capabilityで拡張可能です。
+
+## 5. Permission enforcement
+
+Gatewayはdeny-by-defaultでstable permission tokenを評価します。
+
+State-changing requestでは少なくともadmission時とcommit時に再評価します。
+
+High-impactでは通常permissionに加えて `admin.operation.high-impact` を要求します。
+
+Third-party Addonは `admin.addon.manage.third-party`、official Addonは `admin.addon.manage.official` を別permissionとして扱います。
+
+Privilege revoke/session-generation change後にold privilegeでnew privileged commitを許可しません。
+
+## 6. Idempotency / retry safety
+
+- state-changing identityはOperationId + immutable payload digest。
+- same OperationId / same digest retryは同じlogical operationとして扱う。
+- same OperationId / different digestはrejectする。
+- MessageId / CorrelationId / PlanId / confirmation idをOperation dedup identityにしない。
+- ACK/accepted/queuedをterminal owner effect successと同一視しない。
+- disconnect/retryでhigh-impact actionやAddon applyを二重実行しない。
+
+## 7. Audit
+
+state-changing Admin actionとsecurity-sensitive readを監査します。
+
+minimum audit context:
+
+- AuditRecordId
+- actor account reference
+- session generation / permission context
+- request timestamp
+- OperationId / immutable payload digest
+- CorrelationId
+- action/operation kind
+- target
+- PlanId / PlanDigest when applicable
+- confirmation lifecycle event where applicable
+- request summary without secret value
+- effective Simulation Step / safe boundary
+- result/status code
+- reject reason code
+- related ConfigGeneration / Addon inventory generation
+
+Audit対象には少なくとも次を含めます。
+
+- login security event
+- permission reject
+- Config change request/result
+- operational command request/result
+- high-impact prepare/confirm/commit/result
+- Addon stage/apply
+- official verification failure
+- audit read
+
+Audit retentionはdiagnostic logから分離し、baseline default 180日、deployment policyで延長可能とします。
+
+## 8. No generic Undo
+
+- 一般的なUndo機能は設けない。
+- 実行済みAdmin操作をhistoryから消して巻き戻さない。
+- 元の設定/状態へ戻す場合はnew Operation/change requestとして実行する。
+- compensating/revert operationも通常のauthn/authz、OperationId、validation、audit対象とする。
+- Savepoint recovery/replayは別のrecovery conceptでありUndoではない。
+
+## 9. Pauseとの関係
+
+- Pause中もauth、observation、non-world-mutating operational actionは可能。
+- simulation-affecting Operationをstopped Stepへ曖昧applyしない。
+- Resume後のexplicit valid Stepへexisting deterministic scheduling contractでassignmentする。
+- high-impact planがPause/Resumeやowner generation変化でstaleになった場合、reprepareを要求する。
+
+## 10. Forbidden
+
+- Admin View→Core direct connection
+- UI-only authorization
+- privilege outage時のpermission bypass
+- high-impact direct one-shot apply
+- client-only confirmation flag
+- confirmation artifact replay
+- PlanId/confirmation idをOperationId代替にすること
+- stale owner/config generation silent apply
+- network arrival orderによるworld ordering
+- generic Undoによるaudit/history消去
+- arbitrary shell/script/path command
+- ACKをterminal successと同一視すること
+
+## 11. 後続Phaseへ委ねるもの
+
+Phase 0で責務、high-impact classification、confirmation lifecycle、permission/idempotency/audit semanticsは確定済みです。
+
+後続PhaseではUI interaction design、optional multi-person approval、storage engine、deployment supervisor等の実装方式を選択できますが、本安全境界を弱めてはなりません。
