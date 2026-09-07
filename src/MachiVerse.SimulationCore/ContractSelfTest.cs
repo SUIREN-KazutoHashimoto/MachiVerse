@@ -1,4 +1,5 @@
 using MachiVerse.SimulationCore.Primitives;
+using MachiVerse.SimulationCore.Runtime;
 
 namespace MachiVerse.SimulationCore;
 
@@ -61,6 +62,28 @@ public static class ContractSelfTest
             StableToken.Parse("entity.move"),
             3);
         Assert(intentId.ToString() == "1060de0caa85e65a7e9088cc0631d728", "IntentId derivation vector");
+
+        var scopeDigest = Hash256.Sha256("scope"u8);
+        var earlier = new SameStepOrderKey(OrderPhase.ExternalInput, 0, scopeDigest, 0, intentId);
+        var later = new SameStepOrderKey(OrderPhase.ScheduledInternal, 0, scopeDigest, -100, intentId);
+        Assert(earlier.CompareTo(later) < 0, "SameStepOrderKey phase precedence");
+
+        var worker = new DeterministicWorkerExecutor(3);
+        var work = new[]
+        {
+            new CanonicalWorkItem<int>(2, 30),
+            new CanonicalWorkItem<int>(0, 10),
+            new CanonicalWorkItem<int>(1, 20)
+        };
+        var workerResults = worker.ExecuteAsync(
+            work,
+            async (payload, cancellationToken) =>
+            {
+                await Task.Delay(40 - payload, cancellationToken);
+                return payload;
+            }).GetAwaiter().GetResult();
+        Assert(workerResults.Select(result => result.CanonicalIndex).SequenceEqual(new[] { 0, 1, 2 }), "worker canonical result order");
+        Assert(workerResults.Select(result => result.Value).SequenceEqual(new[] { 10, 20, 30 }), "worker completion timing independence");
 
         Console.WriteLine("SIM-01 contract self-test: PASS");
         return 0;
