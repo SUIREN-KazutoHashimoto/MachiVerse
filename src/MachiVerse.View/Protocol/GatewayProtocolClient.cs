@@ -5,7 +5,7 @@ namespace MachiVerse.View.Protocol;
 
 public sealed class GatewayProtocolClient : IAsyncDisposable
 {
-    private readonly ClientWebSocket _socket = new();
+    private ClientWebSocket? _socket;
 
     public ViewLifecycleState State { get; private set; } = ViewLifecycleState.Starting;
     public event Action<ViewLifecycleState>? StateChanged;
@@ -13,7 +13,13 @@ public sealed class GatewayProtocolClient : IAsyncDisposable
     public async Task ConnectAsync(Uri endpoint, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
-        SetState(State is ViewLifecycleState.Closed or ViewLifecycleState.Faulted ? ViewLifecycleState.Reconnecting : ViewLifecycleState.Connecting);
+        if (!string.Equals(endpoint.Scheme, Uri.UriSchemeWss, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Gateway endpoint must use wss://.", nameof(endpoint));
+
+        var reconnecting = State is ViewLifecycleState.Closed or ViewLifecycleState.Faulted;
+        _socket?.Dispose();
+        _socket = new ClientWebSocket();
+        SetState(reconnecting ? ViewLifecycleState.Reconnecting : ViewLifecycleState.Connecting);
         try
         {
             await _socket.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
@@ -22,23 +28,27 @@ public sealed class GatewayProtocolClient : IAsyncDisposable
         catch
         {
             SetState(ViewLifecycleState.Faulted);
+            _socket.Dispose();
+            _socket = null;
             throw;
         }
     }
 
     public async Task SendAsync(WireEnvelopeV1 envelope, CancellationToken cancellationToken = default)
     {
+        var socket = RequireOpenSocket();
         var bytes = GatewayEnvelopeCodec.Encode(envelope);
-        await _socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Binary, true, cancellationToken).ConfigureAwait(false);
+        await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Binary, true, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<WireEnvelopeV1> ReceiveAsync(CancellationToken cancellationToken = default)
     {
+        var socket = RequireOpenSocket();
         var buffer = new byte[64 * 1024];
         using var message = new MemoryStream();
         while (true)
         {
-            var result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken).ConfigureAwait(false);
+            var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken).ConfigureAwait(false);
             if (result.MessageType == WebSocketMessageType.Close)
             {
                 SetState(ViewLifecycleState.Closed);
@@ -62,6 +72,11 @@ public sealed class GatewayProtocolClient : IAsyncDisposable
     public void MarkResyncing() => SetState(ViewLifecycleState.Resyncing);
     public void MarkDegraded() => SetState(ViewLifecycleState.Degraded);
 
+    private ClientWebSocket RequireOpenSocket()
+        => _socket is { State: WebSocketState.Open } socket
+            ? socket
+            : throw new InvalidOperationException("Gateway WebSocket is not open.");
+
     private void SetState(ViewLifecycleState state)
     {
         State = state;
@@ -70,10 +85,11 @@ public sealed class GatewayProtocolClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
+        if (_socket is { State: WebSocketState.Open or WebSocketState.CloseReceived } socket)
         {
-            await _socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "view-dispose", CancellationToken.None).ConfigureAwait(false);
+            await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "view-dispose", CancellationToken.None).ConfigureAwait(false);
         }
-        _socket.Dispose();
+        _socket?.Dispose();
+        _socket = null;
     }
 }
