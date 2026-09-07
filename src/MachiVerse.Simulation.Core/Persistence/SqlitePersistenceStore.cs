@@ -154,6 +154,17 @@ CREATE TABLE IF NOT EXISTS core_operational_state (
   world_pause_state INTEGER NOT NULL,
   pause_basis_step BLOB CHECK (pause_basis_step IS NULL OR length(pause_basis_step) = 8)
 );
+
+CREATE TABLE IF NOT EXISTS snapshot_catalog (
+  snapshot_id BLOB PRIMARY KEY CHECK (length(snapshot_id) = 16),
+  snapshot_step BLOB NOT NULL CHECK (length(snapshot_step) = 8),
+  history_anchor_sequence BLOB NOT NULL CHECK (length(history_anchor_sequence) = 8),
+  history_anchor_digest BLOB NOT NULL CHECK (length(history_anchor_digest) = 32),
+  state_continuity_token BLOB NOT NULL CHECK (length(state_continuity_token) = 32),
+  snapshot_digest BLOB NOT NULL CHECK (length(snapshot_digest) = 32),
+  physical_manifest_digest BLOB NOT NULL CHECK (length(physical_manifest_digest) = 32),
+  relative_directory TEXT NOT NULL UNIQUE
+) WITHOUT ROWID;
 """;
         await ExecuteNonQueryAsync(sql, cancellationToken);
     }
