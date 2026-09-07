@@ -50,7 +50,16 @@ public static partial class WireEnvelopeValidator
     public static void ValidateId128(ByteString value, string field, bool allowZero)
     {
         if (value.Length != 16) throw new InvalidDataException($"protocol.invalid-id128-length: {field}");
-        if (!allowZero && value.Span.IndexOfAnyExcept((byte)0) < 0) throw new InvalidDataException($"protocol.zero-id-not-allowed: {field}");
+        if (allowZero) return;
+
+        var allZero = true;
+        foreach (var octet in value.Span)
+        {
+            if (octet == 0) continue;
+            allZero = false;
+            break;
+        }
+        if (allZero) throw new InvalidDataException($"protocol.zero-id-not-allowed: {field}");
     }
 
     [GeneratedRegex("^[a-z0-9][a-z0-9._/-]{0,63}$", RegexOptions.CultureInvariant)]
