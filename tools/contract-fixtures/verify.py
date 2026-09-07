@@ -128,6 +128,23 @@ def verify_random() -> None:
         assert word == vector["word64"], vector["name"]
 
 
+def verify_order() -> None:
+    data = load("order.json")["same_step_order"]
+    items = data["items"]
+    ordered = sorted(
+        items,
+        key=lambda item: (
+            item["phase"],
+            item["domain_rank"],
+            bytes.fromhex(item["conflict_scope_digest_hex"]),
+            item["semantic_priority"],
+            bytes.fromhex(item["intent_id_hex"]),
+        ),
+    )
+    actual = [item["name"] for item in ordered]
+    assert actual == data["expected_order"], (actual, data["expected_order"])
+
+
 def main() -> None:
     manifest = load("manifest.json")
     assert manifest["fixture_format"] == "machiverse-contract-fixtures"
@@ -138,6 +155,7 @@ def main() -> None:
     verify_mv_dcbor()
     verify_identity_derivation()
     verify_random()
+    verify_order()
     print("contract fixtures v1: PASS")
 
 
