@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package machiverse.protocol.v1;
+
+option csharp_namespace = "MachiVerse.Protocol.V1";
+
+import "common.proto";
+
+// Canonical wire declaration for browser auth/session payloads.
+// Internal component authentication is transport-level mutual TLS and does not
+// transport private keys or bearer credentials in protobuf messages.
+
+enum AuthDomainWireV1 {
+  AUTH_DOMAIN_UNSPECIFIED = 0;
+  AUTH_DOMAIN_GENERAL_VIEW = 1;
+  AUTH_DOMAIN_ADMIN_VIEW = 2;
+}
+
+enum SessionWireStatusV1 {
+  SESSION_STATUS_UNSPECIFIED = 0;
+  SESSION_STATUS_ACTIVE = 1;
+  SESSION_STATUS_REAUTH_REQUIRED = 2;
+  SESSION_STATUS_REVOKED = 3;
+  SESSION_STATUS_EXPIRED = 4;
+}
+
+message VerifiedIdentityAssertionV1 {
+  bytes login_transaction_id = 1;
+  string issuer = 2;
+  string subject = 3;
+  optional string tenant = 4;
+  repeated string authentication_methods = 5;
+  optional uint64 authentication_time_unix_seconds = 6;
+  bytes verification_digest = 7;
+}
+
+message AuthSessionAttachV1 {
+  bytes session_id = 1;
+  uint64 expected_session_generation = 2;
+}
+
+message AuthSessionStateV1 {
+  bytes session_id = 1;
+  AuthDomainWireV1 auth_domain = 2;
+  string effective_role_set = 3;
+  repeated string effective_permissions = 4;
+  uint64 session_generation = 5;
+  SessionWireStatusV1 status = 6;
+}
+
+message AuthLoginBeginV1 {
+  AuthDomainWireV1 auth_domain = 1;
+  optional string return_path = 2;
+}
+
+message AuthLoginBeginResultV1 {
+  ResultV1 result = 1;
+  optional bytes login_transaction_id = 2;
+  optional string authorization_url = 3;
+}
+
+message AuthLoginResultV1 {
+  ResultV1 result = 1;
+  optional bytes session_id = 2;
+  optional uint64 session_generation = 3;
+}
+
+message AuthLoginProxyV1 {
+  bytes login_transaction_id = 1;
+  bytes connected_gateway_logical_id = 2;
+  AuthDomainWireV1 auth_domain = 3;
+  optional string return_path = 4;
+  uint64 master_generation = 5;
+}
+
+message AuthLoginProxyResultV1 {
+  ResultV1 result = 1;
+  bytes login_transaction_id = 2;
+  uint64 master_generation = 3;
+}
+
+message AuthLoginAssertionV1 {
+  VerifiedIdentityAssertionV1 assertion = 1;
+  bytes connected_gateway_logical_id = 2;
+  uint64 master_generation = 3;
+}
+
+message AuthSessionQueryV1 {
+  bytes session_id = 1;
+}
+
+message AuthSessionResultV1 {
+  ResultV1 result = 1;
+  optional AuthSessionStateV1 session = 2;
+}
+
+message AuthSessionRevokeV1 {
+  bytes session_id = 1;
+  uint64 expected_session_generation = 2;
+  string reason_code = 3;
+}
