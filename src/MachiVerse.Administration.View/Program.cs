@@ -1,5 +1,6 @@
 using MachiVerse.Administration.View;
 using MachiVerse.Administration.View.Configuration;
+using MachiVerse.Administration.View.Modules.Management;
 using MachiVerse.Administration.View.Modules.Monitoring;
 using MachiVerse.Administration.View.Protocol;
 using Microsoft.AspNetCore.Components.Web;
@@ -16,6 +17,13 @@ var adminConfig = AdminViewConfigLoader.LoadText(configText);
 builder.Services.AddSingleton(adminConfig);
 builder.Services.AddSingleton<MonitoringProjectionStore>();
 builder.Services.AddSingleton<IMonitoringModuleBoundary>(static services => services.GetRequiredService<MonitoringProjectionStore>());
+
+// Phase 4 does not yet define concrete standard operational command kinds.
+// Keep the production catalog empty until the ADMIN-03/Gateway cross-review registers exact descriptors.
+builder.Services.AddSingleton(new OperationalCommandCatalog());
+builder.Services.AddSingleton<ManagementProjectionStore>();
+builder.Services.AddSingleton<IManagementModuleBoundary>(static services => services.GetRequiredService<ManagementProjectionStore>());
+
 builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 builder.Services.AddScoped<AdminGatewayProtocolClient>();
 
