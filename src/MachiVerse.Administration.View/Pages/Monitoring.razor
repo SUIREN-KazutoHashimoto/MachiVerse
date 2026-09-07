@@ -78,6 +78,7 @@
 
     <section>
         <h2>Structured log page</h2>
+        <p><strong>Page trace:</strong> @FormatTrace(_snapshot.LogPageTrace)</p>
         @if (_snapshot.Logs.Count == 0)
         {
             <p>No diagnostic log page has been received.</p>
@@ -105,6 +106,7 @@
     <section>
         <h2>Management audit page</h2>
         <p>Audit is kept as a distinct authority/presentation channel from diagnostic logs.</p>
+        <p><strong>Page trace:</strong> @FormatTrace(_snapshot.AuditPageTrace)</p>
         @if (_snapshot.Audit.Count == 0)
         {
             <p>No audit page has been received.</p>
@@ -162,6 +164,16 @@
         if (context.OperationId is not null) parts.Add($"op={context.OperationId}");
         if (context.BatchId is not null) parts.Add($"batch={context.BatchId}");
         if (context.SimulationStep is not null) parts.Add($"step={context.SimulationStep.Value}");
+        return parts.Count == 0 ? "-" : string.Join(" ", parts);
+    }
+
+    private static string FormatTrace(EnvelopeTraceProjection? trace)
+    {
+        if (trace is null) return "-";
+        var parts = new List<string>();
+        if (trace.MessageId is not null) parts.Add($"msg={trace.MessageId}");
+        if (trace.CorrelationId is not null) parts.Add($"corr={trace.CorrelationId}");
+        if (trace.CausationId is not null) parts.Add($"cause={trace.CausationId}");
         return parts.Count == 0 ? "-" : string.Join(" ", parts);
     }
 
