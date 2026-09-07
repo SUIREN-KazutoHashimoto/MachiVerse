@@ -203,6 +203,8 @@ try
     }
     Require(badChainRejected, "Broken history predecessor must reject the whole durable acceptance transaction.");
     Require((await store.ReadHistoryAnchorAsync()).Sequence == 1, "Rejected acceptance must not advance history anchor.");
+
+    await Sim03DurabilitySmoke.RunAsync(store, operationId, initial.Digest);
 }
 finally
 {
