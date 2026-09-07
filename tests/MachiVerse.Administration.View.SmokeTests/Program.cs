@@ -49,6 +49,7 @@ Assert(store.TryApply(Envelope("component.log.page", "protocol.log-page.v1", log
 Assert(store.Snapshot.Logs.Count == 1);
 Assert(store.Snapshot.Audit.Count == 0);
 Assert(store.Snapshot.Logs[0].Correlation.CorrelationId is not null);
+Assert(store.Snapshot.LogPageTrace?.CausationId is not null);
 
 var auditPage = new AuditPageV1();
 auditPage.Records.Add(new AuditRecordWireV1
@@ -64,6 +65,7 @@ auditPage.Records.Add(new AuditRecordWireV1
 Assert(store.TryApply(Envelope("audit.page", "protocol.audit-page.v1", auditPage)));
 Assert(store.Snapshot.Audit.Count == 1);
 Assert(store.Snapshot.Logs.Count == 1); // diagnostic log and audit authority remain separate.
+Assert(store.Snapshot.AuditPageTrace?.CorrelationId is not null);
 
 var healthQuery = MonitoringQueryBuilder.BuildHealth([target], ["gateway.connection.count"]);
 Assert(healthQuery.Targets.Count == 1);
@@ -112,6 +114,9 @@ static WireEnvelopeV1 Envelope(string messageType, string schemaId, IMessage pay
     => new()
     {
         MessageType = messageType,
+        MessageId = Id(7),
+        CorrelationId = Id(8),
+        CausationId = Id(9),
         PayloadSchemaId = schemaId,
         Payload = payload.ToByteString(),
     };
