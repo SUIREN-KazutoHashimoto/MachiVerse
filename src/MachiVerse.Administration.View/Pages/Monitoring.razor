@@ -127,12 +127,18 @@
                 }
                 </tbody>
             </table>
+
+            <details>
+                <summary>CSV export preview</summary>
+                <pre>@AuditCsv</pre>
+            </details>
         }
     </section>
 </main>
 
 @code {
     private MonitoringSnapshot _snapshot = default!;
+    private string AuditCsv => AuditExportFormatter.ToCsv(_snapshot.Audit);
 
     protected override void OnInitialized()
     {
