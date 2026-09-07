@@ -40,9 +40,9 @@ public sealed class OperationalCommandCatalog
         RequireStableToken(descriptor.PayloadSchemaId, nameof(descriptor.PayloadSchemaId));
         RequireStableToken(descriptor.RequiredPermission, nameof(descriptor.RequiredPermission));
 
-        if (descriptor.PayloadSchemaMajor > ushort.MaxValue || descriptor.PayloadSchemaMinor > ushort.MaxValue)
+        if (descriptor.PayloadSchemaMajor is 0 or > ushort.MaxValue || descriptor.PayloadSchemaMinor > ushort.MaxValue)
         {
-            throw new InvalidDataException("Command payload schema version exceeds uint16 protocol range.");
+            throw new InvalidDataException("Command payload schema version must be within protocol uint16 range and have non-zero major.");
         }
 
         if (descriptor.AllowedTargetKinds.Count == 0 || descriptor.AllowedTargetKinds.Any(static kind => (int)kind == 0))
@@ -53,7 +53,13 @@ public sealed class OperationalCommandCatalog
 
     internal static void RequireStableToken(string value, string fieldName)
     {
-        if (string.IsNullOrEmpty(value) || value.Length > 64 || value[0] is < 'a' or > 'z')
+        if (string.IsNullOrEmpty(value) || value.Length > 64)
+        {
+            throw new InvalidDataException($"{fieldName} must be a StableToken.");
+        }
+
+        var first = value[0];
+        if (!(first is >= 'a' and <= 'z' || first is >= '0' and <= '9'))
         {
             throw new InvalidDataException($"{fieldName} must be a StableToken.");
         }
@@ -62,7 +68,7 @@ public sealed class OperationalCommandCatalog
         {
             var valid = ch is >= 'a' and <= 'z'
                 || ch is >= '0' and <= '9'
-                || ch is '.' or '/' or '-';
+                || ch is '.' or '_' or '/' or '-';
             if (!valid)
             {
                 throw new InvalidDataException($"{fieldName} must be a StableToken.");
