@@ -1,0 +1,17 @@
+@page "/"
+@inject GeneralViewConfig Config
+@inject GatewayProtocolClient Gateway
+
+<PageTitle>MachiVerse</PageTitle>
+
+<main class="shell">
+    <h1>MachiVerse General View</h1>
+    <p>VIEW-01 protocol client foundation.</p>
+    <dl>
+        <dt>Lifecycle</dt>
+        <dd>@Gateway.State</dd>
+        <dt>Target FPS</dt>
+        <dd>@Config.TargetFps</dd>
+    </dl>
+    <canvas id="machiverse-scene" aria-label="MachiVerse world presentation surface"></canvas>
+</main>
