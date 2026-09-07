@@ -20,9 +20,20 @@ public sealed class ConfirmedWorldStore
 
     public ConfirmedWorldSnapshot? Current => Volatile.Read(ref _current);
 
-    internal void Install(ConfirmedWorldSnapshot snapshot) => Volatile.Write(ref _current, snapshot);
+    public event Action? Changed;
 
-    public void ClearForWorldChange() => Volatile.Write(ref _current, null);
+    internal void Install(ConfirmedWorldSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        Volatile.Write(ref _current, snapshot);
+        Changed?.Invoke();
+    }
+
+    public void ClearForWorldChange()
+    {
+        Volatile.Write(ref _current, null);
+        Changed?.Invoke();
+    }
 }
 
 public sealed class ContinuityMismatchException(string message) : Exception(message);
