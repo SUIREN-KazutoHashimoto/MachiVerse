@@ -1,3 +1,4 @@
+using System.Globalization;
 using MachiVerse.View.State;
 
 namespace MachiVerse.View.Rendering;
@@ -5,10 +6,10 @@ namespace MachiVerse.View.Rendering;
 public sealed record SceneProjectionRecord(
     string RecordSchemaId,
     string RecordIdHex,
-    ulong RecordRevision);
+    string RecordRevision);
 
 public sealed record SceneProjectionModel(
-    ulong BasisStep,
+    string BasisStep,
     string ContinuityTokenHex,
     string ProjectionSchemaDigestHex,
     IReadOnlyList<SceneProjectionRecord> Records)
@@ -27,11 +28,11 @@ public sealed record SceneProjectionModel(
             .Select(static item => new SceneProjectionRecord(
                 item.Value.SchemaId,
                 item.Key.RecordIdHex,
-                item.Value.Revision))
+                item.Value.Revision.ToString(CultureInfo.InvariantCulture)))
             .ToArray();
 
         return new SceneProjectionModel(
-            snapshot.BasisStep,
+            snapshot.BasisStep.ToString(CultureInfo.InvariantCulture),
             Convert.ToHexStringLower(snapshot.ContinuityToken),
             Convert.ToHexStringLower(snapshot.ProjectionSchemaDigest),
             records);
