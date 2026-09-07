@@ -6,6 +6,13 @@ public sealed record PortableWorldImportPlan(
     string ExportDirectory,
     PersistenceMigrationPaths Migration);
 
+/// <summary>
+/// Validated staging boundary for importing a future portable world bundle.
+///
+/// The concrete bundle format is intentionally delegated to verifyExport/loadIntoStaging because
+/// Phase 4 does not yet define the backup/export bundle encoding. This type only guarantees that
+/// import occurs into a new persistence generation and CURRENT switches after validation.
+/// </summary>
 public static class PortableWorldImport
 {
     public static PortableWorldImportPlan PrepareForExistingWorld(
@@ -16,7 +23,7 @@ public static class PortableWorldImport
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(exportDirectory);
         var export = Path.GetFullPath(exportDirectory);
-        ValidateExportDirectoryShape(export);
+        ValidateBundleBoundary(export);
         var migration = PersistenceGenerationMigration.Prepare(persistenceRoot, worldId, activeGeneration);
         return new PortableWorldImportPlan(export, migration);
     }
@@ -35,12 +42,12 @@ public static class PortableWorldImport
         ArgumentNullException.ThrowIfNull(verifyImportedGeneration);
         if (expectedWorldId.IsZero) throw new ArgumentException("WorldId ZERO is invalid for import.", nameof(expectedWorldId));
 
-        ValidateExportDirectoryShape(plan.ExportDirectory);
+        ValidateBundleBoundary(plan.ExportDirectory);
         await verifyExport(plan.ExportDirectory, expectedWorldId, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // The importer only receives the new staging generation. It cannot overwrite the active
-        // source generation unless it deliberately escapes the supplied path boundary.
+        // The loader receives only the new staging generation. The active source generation is
+        // never exposed as a write target, and CURRENT remains unchanged until target validation.
         await loadIntoStaging(plan.ExportDirectory, plan.Migration.Staging, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -50,16 +57,12 @@ public static class PortableWorldImport
             cancellationToken);
     }
 
-    public static void ValidateExportDirectoryShape(string exportDirectory)
+    public static void ValidateBundleBoundary(string exportDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(exportDirectory);
         var root = Path.GetFullPath(exportDirectory);
         if (!Directory.Exists(root)) throw new InvalidDataException("persistence.export-missing");
-        if (!File.Exists(Path.Combine(root, "export-manifest.pb")))
-            throw new InvalidDataException("persistence.export-manifest-missing");
-        if (!Directory.Exists(Path.Combine(root, "snapshot")))
-            throw new InvalidDataException("persistence.export-snapshot-missing");
-        if (!Directory.Exists(Path.Combine(root, "history")))
-            throw new InvalidDataException("persistence.export-history-missing");
+        if (!Directory.EnumerateFileSystemEntries(root).Any())
+            throw new InvalidDataException("persistence.export-empty");
     }
 }
