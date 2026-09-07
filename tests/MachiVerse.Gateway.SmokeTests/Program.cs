@@ -10,6 +10,20 @@ if (config.ReconnectMaxMs < config.ReconnectInitialMs) throw new InvalidOperatio
 
 static ByteString Id(byte value) => ByteString.CopyFrom(Enumerable.Repeat(value, 16).ToArray());
 static ByteString Hash(byte value) => ByteString.CopyFrom(Enumerable.Repeat(value, 32).ToArray());
+static StatePublicationChunkV1 Chunk(StatePublicationV1 publication, ProjectionChunkPayloadV1 payload)
+{
+    var bytes = payload.ToByteArray();
+    return new StatePublicationChunkV1
+    {
+        PublicationId = publication.PublicationId,
+        ChunkIndex = payload.ChunkIndex,
+        ChunkCount = publication.ChunkCount,
+        UncompressedPayloadDigest = ByteString.CopyFrom(SHA256.HashData(bytes)),
+        Compression = (CompressionKindV1)1,
+        Payload = ByteString.CopyFrom(bytes)
+    };
+}
+
 const int CompressionNoneWireValue = 1;
 var envelope = new WireEnvelopeV1
 {
@@ -47,7 +61,6 @@ projectionPayload.Records.Add(new ProjectionRecordV1
     MutationKind = (ProjectionMutationKindV1)1,
     Payload = ByteString.CopyFromUtf8("record-v1")
 });
-var chunkPayloadBytes = projectionPayload.ToByteArray();
 var fullPublication = new StatePublicationV1
 {
     PublicationId = publicationId,
@@ -56,27 +69,47 @@ var fullPublication = new StatePublicationV1
     ChunkCount = 1,
     ProjectionSchemaDigest = Hash(21)
 };
-var fullChunk = new StatePublicationChunkV1
-{
-    PublicationId = publicationId,
-    ChunkIndex = 0,
-    ChunkCount = 1,
-    UncompressedPayloadDigest = ByteString.CopyFrom(SHA256.HashData(chunkPayloadBytes)),
-    Compression = (CompressionKindV1)1,
-    Payload = ByteString.CopyFrom(chunkPayloadBytes)
-};
 
 var cache = new ConfirmedProjectionCache();
 var resync = new ResyncCoordinator(cache);
-var fullSnapshot = resync.ApplyOrEnterSuspect(fullPublication, 100, [fullChunk]);
+var fullSnapshot = resync.ApplyOrEnterSuspect(fullPublication, 100, [Chunk(fullPublication, projectionPayload)]);
 if (fullSnapshot.BasisStep != 100 || fullSnapshot.Records.Count != 1) throw new InvalidOperationException("FULL publication was not atomically installed.");
 if (!resync.AllowsWorldAffectingAdmission) throw new InvalidOperationException("Synced confirmed basis should allow admission gate.");
 
-var badDelta = new StatePublicationV1
+var deltaPublication = new StatePublicationV1
 {
     PublicationId = Id(13),
     Kind = (PublicationKindV1)2,
     StateContinuityToken = Hash(22),
+    BaseStateContinuityToken = Hash(20),
+    ChunkCount = 1,
+    ProjectionSchemaDigest = Hash(21)
+};
+var deltaPayload = new ProjectionChunkPayloadV1
+{
+    SubscriptionId = Id(12),
+    PublicationId = deltaPublication.PublicationId,
+    ChunkIndex = 0
+};
+deltaPayload.Records.Add(new ProjectionRecordV1
+{
+    RecordSchemaId = "view.test-record.v1",
+    RecordSchemaVersion = new SchemaVersionWireV1 { Major = 1, Minor = 0 },
+    RecordId = recordId,
+    RecordRevision = 2,
+    MutationKind = (ProjectionMutationKindV1)1,
+    Payload = ByteString.CopyFromUtf8("record-v2")
+});
+var deltaSnapshot = resync.ApplyOrEnterSuspect(deltaPublication, 101, [Chunk(deltaPublication, deltaPayload)]);
+var key = new ProjectionRecordKey("view.test-record.v1", Convert.ToHexStringLower(recordId.Span));
+if (deltaSnapshot.BasisStep != 101 || deltaSnapshot.Records[key].Revision != 2)
+    throw new InvalidOperationException("DELTA publication must apply on the matching confirmed continuity token.");
+
+var badDelta = new StatePublicationV1
+{
+    PublicationId = Id(14),
+    Kind = (PublicationKindV1)2,
+    StateContinuityToken = Hash(23),
     BaseStateContinuityToken = Hash(99),
     ChunkCount = 1,
     ProjectionSchemaDigest = Hash(21)
@@ -87,20 +120,10 @@ var badDeltaPayload = new ProjectionChunkPayloadV1
     PublicationId = badDelta.PublicationId,
     ChunkIndex = 0
 };
-var badDeltaBytes = badDeltaPayload.ToByteArray();
-var badDeltaChunk = new StatePublicationChunkV1
-{
-    PublicationId = badDelta.PublicationId,
-    ChunkIndex = 0,
-    ChunkCount = 1,
-    UncompressedPayloadDigest = ByteString.CopyFrom(SHA256.HashData(badDeltaBytes)),
-    Compression = (CompressionKindV1)1,
-    Payload = ByteString.CopyFrom(badDeltaBytes)
-};
 var mismatchRejected = false;
 try
 {
-    resync.ApplyOrEnterSuspect(badDelta, 101, [badDeltaChunk]);
+    resync.ApplyOrEnterSuspect(badDelta, 102, [Chunk(badDelta, badDeltaPayload)]);
 }
 catch (ContinuityMismatchException)
 {
@@ -108,9 +131,11 @@ catch (ContinuityMismatchException)
 }
 if (!mismatchRejected || resync.State != GatewaySyncState.Suspect || resync.AllowsWorldAffectingAdmission)
     throw new InvalidOperationException("Continuity mismatch must gate normal admission and enter SUSPECT.");
+if (cache.Current?.BasisStep != 101)
+    throw new InvalidOperationException("Rejected DELTA must not replace the last confirmed snapshot.");
 
 var request = resync.BeginResync(Id(42), forceFull: false);
-if (!request.HasClientBasisStep || request.ClientBasisStep != 100 || !request.HasClientContinuityToken)
+if (!request.HasClientBasisStep || request.ClientBasisStep != 101 || !request.HasClientContinuityToken)
     throw new InvalidOperationException("Resync request must carry the last confirmed basis when continuation is possible.");
 
 var negotiation = new ProtocolNegotiationState();
@@ -122,5 +147,34 @@ var accept = new ProtocolAcceptV1
 accept.EffectiveOptionalCapabilities.Add("protocol.protobuf.v1");
 negotiation.Accept(accept);
 if (!negotiation.IsNegotiated || negotiation.NegotiationGeneration != 1) throw new InvalidOperationException("Protocol negotiation state failed.");
+
+var scheduling = new SchedulingPolicyProjection();
+var policy = new OperationSchedulingPolicyWireV1
+{
+    OwnerConfigGeneration = 7,
+    MinLeadSteps = 2,
+    DefaultDeadlineWindowSteps = 90,
+    GraceSteps = 15,
+    LatePolicy = (LatePolicyWireV1)2
+};
+var projected = scheduling.Apply(policy);
+if (projected.OwnerConfigGeneration != 7 || projected.MinLeadSteps != 2 || projected.DefaultDeadlineWindowSteps != 90)
+    throw new InvalidOperationException("Core scheduling policy projection failed.");
+var stalePolicyRejected = false;
+try
+{
+    scheduling.Apply(new OperationSchedulingPolicyWireV1
+    {
+        OwnerConfigGeneration = 6,
+        MinLeadSteps = 2,
+        GraceSteps = 15,
+        LatePolicy = (LatePolicyWireV1)2
+    });
+}
+catch (InvalidDataException)
+{
+    stalePolicyRejected = true;
+}
+if (!stalePolicyRejected) throw new InvalidOperationException("Stale scheduling policy generation must be rejected.");
 
 Console.WriteLine("GW-01/GW-02 smoke tests passed.");
