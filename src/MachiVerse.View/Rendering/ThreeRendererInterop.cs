@@ -6,7 +6,7 @@ public sealed record RendererStatus(
     bool Initialized,
     string BackendMode,
     string ThreeRevision,
-    ulong? BasisStep,
+    string? BasisStep,
     int ProjectionRecordCount);
 
 public sealed class ThreeRendererInterop(IJSRuntime jsRuntime) : IAsyncDisposable
