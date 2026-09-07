@@ -1,20 +1,23 @@
 # Gateway↔Administration View Phase 0 Protocol Addendum
 
-Status: Draft / Issue #38 work in progress  
+Status: Complete / Issue #38  
 ProtocolId: `mv.gateway-admin-view`  
 Parent: `gateway-admin-view.md`  
 Architecture: `../architecture/admin-view-phase0-design.md`
 
 ## 1. Scope
 
-本書は Issue #38 Phase 0 で `mv.gateway-admin-view` に追加する normative semantics を定義する。
-共通 envelope/version/Capability/result/error は既存 Protocol v1 contract を継続使用する。
+本書はIssue #38 Phase 0で確定した`mv.gateway-admin-view`固有normative semanticsを定義します。
 
-Administration View は connected Gateway 以外へ management connection を張らない。
+Wire type/field numberは`schema/*.proto`、MessageType mappingは`schema/message-registry-v1.md`が正本です。
 
-## 2. Baseline capabilities
+Administration Viewはconnected Gateway以外へmanagement connectionを張りません。
 
-既存 `protocol.admin-health.v1` に加え、Phase 0 baseline を次とする。
+## 2. Capability model
+
+Required baselineはMessage Registryの最小bootstrap/health集合を維持します。
+
+Phase 0 feature Capability:
 
 ```text
 protocol.admin-health.v1
@@ -26,65 +29,75 @@ protocol.admin-confirmation.v1
 protocol.admin-addon-management.v1
 ```
 
-high-impact action を扱う接続で `protocol.admin-confirmation.v1` が不足する場合、high-impact action を silent downgrade せず reject する。
+- feature Capability不足は`protocol.capability-missing`で明示rejectする。
+- high-impact actionで`protocol.admin-confirmation.v1`不足時にordinary pathへdowngradeしない。
+- Addon management Capability不足時はAddon management messageを使用しない。
 
-addon management を扱う接続で `protocol.admin-addon-management.v1` が不足する場合、addon inventory/catalog/action UI は unavailable とする。
+## 3. Health semantics
 
-## 3. Existing message semantics fixed by Phase 0
+`component.health.query` / `component.health.result`:
 
-### 3.1 `component.health.query` / `component.health.result`
+- empty `targets` = all permission-visible components。
+- empty `metric_names` = baseline metric set。
+- unknown metricはquery全体を必ずしもrejectせずunsupported conditionで返せる。
+- sample observation timestampを保持する。
+- stale sampleをfreshとして再timestampしない。
 
-- `HealthQueryV1.targets` empty は "all Admin-visible components" を意味する。
-- `metric_names` empty は baseline metric set を意味する。
-- unknown metric name は query 全体を reject せず、unsupported metric condition を返してよい。
-- response sample は observation timestamp を必須とする。
-- stale sample を fresh として timestamp 更新してはならない。
+## 4. Log semantics
 
-### 3.2 `component.log.query` / `component.log.page`
+`component.log.query` / `component.log.page`:
 
-- `page_size=0` は default 200 と解釈する。
-- accepted range は 1..1000。
-- cursor は opaque、最大256 bytes。
-- cursor は query filter と結び付け、別 filter への再利用を reject する。
-- log query は read-only で World State mutation ではない。
-- secret redaction は source/collector 側で完了した record のみ Gateway が公開する。
+- `page_size=0` = default 200。
+- accepted range 1..1000。
+- cursorはopaque、最大256 bytes、query filterへbindする。
+- severity/event/time/target/CorrelationId/OperationId/SimulationStep/MasterGenerationをfilter可能。
+- queryはread-only。
+- secret redactionはsource/collector側で完了してからGatewayへ公開する。
 
-### 3.3 `config.read` / `config.read.result`
+## 5. Config semantics
 
-- `keys` empty は permission により公開可能な全 key metadata を要求する。
-- sensitive item は effective value を返さず `sensitive=true` とする。
-- `config_digest` は公開 payload digest ではなく owner Config snapshot identity として扱う。
-- secret value を digest reverse lookup 可能な形で UI へ公開しない。
+### Read
 
-### 3.4 `config.change` / `config.change.result`
+- empty `keys` = permission上公開可能な全key metadata。
+- sensitive itemはeffective valueを返さず`value_redacted=true`とする。
+- `config_digest`はowner Config snapshot identityでありsecret valueのreverse lookup sourceとして公開しない。
 
-- OperationId / immutable payload digest は必須。
-- `expected_base_generation` mismatch は `config.stale-generation`。
-- duplicate key は `protocol.invalid-argument`。
-- one request は one target component の atomic change set。
-- partial apply 禁止。
-- simulation-affecting item を含む場合は high-impact prepare/commit flow が必須。
-- restart/world-regeneration required item を runtime change として request した場合、必要 boundary を stable result code/diagnostic metadata で返す。
+### Change
 
-### 3.5 `operational.command`
+- OperationId / immutable payload digest必須。
+- `expected_base_generation` mismatch = `config.stale-generation`。
+- duplicate key = `protocol.invalid-argument`。
+- one request = one target componentのatomic change set。
+- partial apply禁止。
+- simulation-affecting changeはhigh-impact flow必須。
+- restart/world-regeneration required itemはrequired boundaryをresult/planで返す。
 
-- `command_kind` は registry token。shell/script/path を入れない。
-- Phase 0 では全 command に OperationId と immutable payload digest を要求する。
-- `payload_schema_id` と `payload_schema_version` は command registry と一致しなければ reject する。
-- high-impact command は direct execute を reject し prepare/commit flow を要求する。
-- accepted/queued は terminal success ではない。terminal state は `operation.result` / status query で追跡する。
+## 6. Operational command semantics
 
-### 3.6 `audit.query` / `audit.page`
+`operational.command`:
 
-- audit read permission は `admin.observe.audit`。
-- audit query 自身も `audit.read` event として監査する。
-- secret Config value、credential、private key material を audit payload に含めない。
+- `command_kind`はstable registry token。
+- arbitrary shell/script/pathは禁止。
+- Phase 0 standard commandはOperationId / immutable payload digest必須。
+- payload schema id/versionはcommand registryと一致させる。
+- high-impact commandはdirect applyをrejectする。
+- accepted/queuedはterminal successではない。
 
-## 4. Permission decision
+Phase 0 command registry:
 
-Gateway は request admission 時と state-changing commit 時に permission を評価する。
+| command_kind | Required permission | High-impact |
+|---|---|---:|
+| `gateway.resync.request` | `admin.operation.execute` | no |
+| `world.save.create` | `admin.operation.execute` | no |
+| `world.pause` | `admin.operation.execute` + `admin.operation.high-impact` | yes |
+| `world.resume` | same | yes |
+| `component.restart.request` | same | yes |
+| `component.shutdown.request` | same | yes |
+| `diagnostic.snapshot.create` | `admin.operation.execute` | no |
 
-permission token baseline:
+restart/shutdownはdeployment supervisor capabilityがない場合`operation.unsupported`です。
+
+## 7. Permission tokens
 
 ```text
 admin.observe.health
@@ -100,111 +113,111 @@ admin.addon.manage.official
 admin.addon.manage.third-party
 ```
 
-commit 前に session generation が変化していた場合、prepare 時に permission があっても再認可する。
+Gatewayはrequest admission時とstate-changing commit時にpermission/session generationを評価します。
 
-## 5. High-impact prepare/confirm/commit
+## 8. High-impact flow
 
-### 5.1 Rule
-
-high-impact action は直接の `config.change` / `operational.command` / addon apply を terminal apply しない。
-
-flow:
+Canonical message sequence:
 
 ```text
 A -> G: admin.action.prepare
 G -> A: admin.action.plan
+A -> G: admin.action.confirm
+G -> A: admin.action.confirmed
 A -> G: admin.action.commit
 G -> A: admin.action.result
 ```
 
-### 5.2 Plan semantics
+### 8.1 Prepare
 
-`admin.action.plan` は server-generated immutable plan を返す。
+`AdminActionPrepareV1`は次のstandard action familyだけをoneofで受け付けます。
 
-minimum fields:
+- Config change
+- Operational command
+- Simulation Admin Operation
+- Addon action intent
+
+generic arbitrary admin payload channelとして使用しません。
+
+### 8.2 Plan
+
+`AdminActionPlanV1`はserver-generated immutable planです。
+
+minimum semantics:
 
 ```text
 PlanId: Id128
-PlanDigest: SHA-256
-ActionKind: stable token
+PlanDigest: Hash256
+ActionKind: StableToken
 OperationId: Id128
-ImmutablePayloadDigest: SHA-256
+ImmutablePayloadDigest: Hash256
 Target: ComponentTargetV1
-RiskLevel: LOW | MEDIUM | HIGH | CRITICAL
-RequiredPermissions: repeated StableToken
-SimulationAffecting: bool
-RequiredBoundary: NONE | SAFE_STEP | RESTART | WORLD_REGENERATION
-DependencyImpactSummary: repeated StableToken/diagnostic
-WarningCodes: repeated StableToken
+RiskLevel
+RequiredPermissions
+SimulationAffecting
+RequiredBoundary
+DependencyImpactCodes
+WarningCodes
 SessionGeneration
 ExpiresAtUnixMillis
+ConfirmationChallengeId: Id128
+ConfirmationChallengeExpiresAtUnixMillis
 ```
 
-PlanDigest は normalized action + target + relevant owner generation/dependency snapshot + required boundary を cover する。
+PlanDigestはnormalized action + target + relevant owner generation/dependency/trust snapshot + required boundaryをcoverします。
 
-### 5.3 Commit validation
+### 8.3 Confirm
 
-Gateway は commit で少なくとも次を再検証する。
+`AdminActionConfirmV1`はPlanId/PlanDigest、challenge、OperationId、session generationをserverへ返します。
 
-- PlanId exists and not expired
-- PlanDigest exact match
+Gatewayはvalid confirmationに対して`AdminActionConfirmationV1`を発行します。
+
+- ConfirmationId = Id128
+- ConfirmationDigest = Hash256
+- plan/sessionへbind
+- expiryあり
+- server-side unused stateを保持
+- client-side booleanだけでは成立しない
+
+### 8.4 Commit
+
+`AdminActionCommitV1`はPlan identity、Confirmation identity、OperationId/digest、session generationを提示します。
+
+Gatewayはcommitで次を再検証します。
+
+- plan exists / not expired
+- plan digest exact match
+- confirmation exists / not expired / unused
+- confirmation is bound to same plan/session
 - OperationId/payload digest exact match
 - session active
-- session generation unchanged or explicitly revalidated
-- required permission still present
-- target generation/dependency/trust state not stale
-- confirmation supplied
+- permission still present
+- target owner generation/dependency/trust snapshot not stale
+- safe boundary remains valid
 
-stale plan は `admin.plan-stale`。
-expired plan は `admin.plan-expired`。
-confirmation missing は `admin.confirmation-required`。
+commit成功またはterminal confirmation consumption後、confirmation artifactを再利用不可にします。
 
-Phase 0 は single-operator confirmation。multi-person approval は baseline に含めない。
+Stable reject baseline:
 
-## 6. Standard operational command registry
+```text
+admin.plan-stale
+admin.plan-expired
+admin.confirmation-required
+admin.confirmation-expired
+admin.confirmation-used
+admin.confirmation-mismatch
+```
 
-| command_kind | Required permission | High-impact | Expected terminal path |
-|---|---|---:|---|
-| `gateway.resync.request` | `admin.operation.execute` | no | `operation.result` |
-| `world.save.create` | `admin.operation.execute` | no | `operation.result` |
-| `world.pause` | `admin.operation.execute` + `admin.operation.high-impact` | yes | prepare/commit + `operation.result` |
-| `world.resume` | same | yes | prepare/commit + `operation.result` |
-| `component.restart.request` | same | yes | prepare/commit + `operation.result` |
-| `component.shutdown.request` | same | yes | prepare/commit + `operation.result` |
-| `diagnostic.snapshot.create` | `admin.operation.execute` | no | `operation.result` |
+Phase 0はsingle-operator confirmationです。
 
-`component.restart.request` / `component.shutdown.request` は deployment supervisor capability がない場合 `operation.unsupported`。
-
-## 7. Addon management messages
-
-Phase 0 は addon functional payload ではなく management/safety metadata のみ standard protocol に追加する。
-
-### 7.1 Inventory
+## 9. Addon inventory
 
 ```text
 A -> G: addon.inventory.query
 G -> A: addon.inventory.result
 ```
 
-inventory item minimum fields:
-
-```text
-AddonId
-Version
-TargetComponent
-InstallState
-ActivationState
-TrustTier
-ArtifactSha256
-PublisherId optional
-SignatureState
-RequiredCapabilities
-ProvidedCapabilities
-Dependencies
-ConfigSchemaVersion
-PersistentDataState
-UpdateAvailable optional
-```
+`AddonInventoryItemV1`は少なくともidentity/version/target/install state/activation state/trust tier/artifact SHA-256/publisher/signature state/Capability/dependency/Config schema/persistent-data/update metadataを提供します。
 
 TrustTier:
 
@@ -214,37 +227,22 @@ THIRD_PARTY_LOCAL_TRUST
 THIRD_PARTY_UNKNOWN
 ```
 
-`THIRD_PARTY_LOCAL_TRUST` を `OFFICIAL` と表示・扱いしない。
+local trustをOFFICIALへ昇格しません。
 
-### 7.2 Official catalog
+## 10. Official catalog
 
 ```text
 A -> G: addon.catalog.query
 G -> A: addon.catalog.page
 ```
 
-catalog は configured official store を Gateway が query する。
-Administration View が store response を直接 trust decision に使わない。
+Gatewayがconfigured official storeをqueryします。Admin View/browserがstore responseを直接trust decisionに使用しません。
 
-catalog item minimum fields:
+Catalog itemはAddonId/version/display name/target kinds/protocol range/Capability/dependency/artifact digest/publisher/signature metadata等を返します。
 
-```text
-AddonId
-Version
-DisplayName
-TargetComponentKinds
-RequiredProtocolRange
-RequiredCapabilities
-Dependencies
-ArtifactSha256
-PublisherId
-ManifestSignature
-ReleaseNotesUri optional
-```
+## 11. Third-party staging
 
-### 7.3 Third-party staging
-
-package bytes は normal WebSocket message に載せない。
+package bytesはnormal WebSocketへ載せません。
 
 BFF HTTPS endpoint:
 
@@ -256,18 +254,17 @@ requirements:
 
 - authenticated Admin session
 - `admin.addon.manage.third-party`
-- streaming upload with configured size limit
+- streaming upload + configured size/count limits
 - Gateway computes SHA-256
-- upload result returns `StagedPackageId`, byte size, SHA-256, parsed manifest summary
-- upload completion does not install or load code
+- resultはopaque StagedPackageId、byte size、digest、manifest summary
+- upload完了だけではinstall/loadしない
+- staged objectはoperational Configによりexpireする
 
-staged package is opaque server-side object and expires by operational Config.
+## 12. Addon action
 
-### 7.4 Addon action
+install/update/disable/removeは`AddonActionIntentV1`をhigh-impact `admin.action.*` flowへ統合します。
 
-install/update/disable/remove は high-impact `admin.action.prepare/commit` に統合する。
-
-Addon action intent fields:
+Intent:
 
 ```text
 Action: INSTALL | UPDATE | DISABLE | REMOVE
@@ -276,20 +273,20 @@ CatalogItemRef optional
 StagedPackageId optional
 ExpectedAddonId
 ExpectedVersion optional
-ExpectedSha256
+ExpectedArtifactSha256
 TargetComponent
 ```
 
-Official install requires `admin.addon.manage.official`。
-Third-party staged source requires `admin.addon.manage.third-party`。
-Third-party install/update は常に high-impact。
+Official actionは`admin.addon.manage.official`、third-partyは`admin.addon.manage.third-party`を要求します。
 
-## 8. Official trust verification
+Third-party install/updateは常にhigh-impactです。
 
-Official package verification order:
+## 13. Official verification
+
+order:
 
 1. HTTPS transport success
-2. official catalog/manifest signature verification
+2. catalog/manifest signature verification
 3. Ed25519 signer chain to pinned official trust root
 4. artifact SHA-256 exact match
 5. manifest identity/version/target consistency
@@ -297,9 +294,9 @@ Official package verification order:
 7. archive extraction safety
 8. target owner preflight
 
-failure は terminal reject。warning-only continuation 禁止。
+failureはterminal rejectです。
 
-stable result code baseline:
+Stable result code baseline:
 
 ```text
 addon.signature-invalid
@@ -314,20 +311,7 @@ addon.archive-unsafe
 addon.persistent-data-conflict
 ```
 
-## 9. Third-party trust semantics
-
-Third-party package は signature があっても official trust root へ chain しない限り OFFICIAL ではない。
-
-locally configured trusted key で signature 検証できた場合は `THIRD_PARTY_LOCAL_TRUST`。
-それ以外は `THIRD_PARTY_UNKNOWN`。
-
-UI は source、digest、signer、trust tier、simulation/persistent impact を commit 前に表示する。
-
-## 10. Addon apply semantics
-
-Addon install/update/disable/remove は target owner acknowledgement を terminal success 条件とする。
-
-state machine:
+## 14. Addon apply lifecycle
 
 ```text
 STAGED
@@ -342,65 +326,54 @@ FAILED
 
 - validation before code load
 - no in-place partial update
-- restart-required activation は installed/active を別 state で返す
-- live activation は addon が explicit safe-step contract を宣言し target owner が support する場合のみ
-- apply failure は previous active version を維持する
-- inconsistent addon config/dependency のまま component を standard startup しない
+- install stateとactivation stateを分離
+- live activationはexplicit safe-step contractがある場合のみ
+- otherwise restart boundary
+- apply failureはprevious active versionを維持
+- inconsistent addon config/dependencyでsilent startupしない
 
-## 11. Retry/idempotency
+## 15. Retry / idempotency
 
-- prepare は same immutable action digest に対して同一 plan を再利用してよいが expiration/state change を超えて再利用しない。
-- commit は OperationId + immutable payload digest で idempotent。
-- same OperationId / different digest は protocol violation/reject。
-- MessageId/CorrelationId を dedup identity としない。
-- network retry で package install を二重 apply しない。
+- state-changing identity = OperationId + immutable payload digest。
+- same OperationId/different digestはreject。
+- MessageId/CorrelationId/PlanId/ConfirmationId/StagedPackageIdをdedup identityにしない。
+- prepare artifactはexpiry/state changeを越えて再利用しない。
+- retryでAddon install/high-impact actionを二重applyしない。
 
-## 12. Audit mapping
+## 16. Audit mapping
 
-次は audit mandatory:
+Mandatory baseline:
 
-- failed/successful login security events
+- login security event
 - permission reject
 - Config change request/result
 - operational command request/result
-- high-impact prepare/commit/result
-- addon stage metadata creation
-- addon install/update/disable/remove
+- high-impact prepare/confirm/commit/result
+- Addon stage
+- Addon install/update/disable/remove
 - official verification failure
 - audit read
 
-minimum correlation:
+Audit payloadはsecret Config value、credential、private keyを含めません。
 
-```text
-AuditRecordId
-ActorAccountRef
-SessionGeneration
-OperationId optional
-ImmutablePayloadDigest optional
-CorrelationId optional
-PlanId/PlanDigest optional
-ActionKind
-Target
-ResultCode
-EffectiveStep/Boundary optional
-ResultingConfigGeneration optional
-AddonInventoryGeneration optional
-```
+## 17. Forbidden
 
-## 13. Forbidden
-
-- arbitrary shell command over `operational.command`
-- direct component filesystem edit from Administration View
-- direct Administration View→Simulation Core connection
+- arbitrary shell/script/path over operational command
+- Admin Viewからcomponent filesystem/direct internal API access
+- Admin View→Simulation Core direct connection
 - UI-only authorization
-- high-impact direct apply without server-side prepare/commit
+- high-impact direct apply
+- client-only confirmation
+- confirmation replay
 - stale ConfigGeneration silent overwrite
-- package bytes in generic addon functional payload area
-- official hash verification without publisher signature verification
-- third-party trust label promotion to official
+- package bytesのgeneric addon functional protocol化
+- hash-only official publisher verification
+- third-party trustのofficial昇格
 - upload completion = install success
 - ACK = terminal target effect success
 
-## 14. Implementation follow-up
+## 18. Phase 0 closure
 
-Phase 0 completion requires the canonical protobuf/message registry to encode the new high-impact/addon management messages defined in this addendum and parent documents to reference this contract without contradictory "未確定" wording.
+本書で定義したhigh-impact/Add-on management messageは`payloads.proto`と`message-registry-v1.md`へcanonical化済みです。
+
+後続Phaseはimplementation technology/UIを選択できますが、本Protocol semanticsをsilentに変更してはなりません。
