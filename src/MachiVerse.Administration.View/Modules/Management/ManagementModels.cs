@@ -37,6 +37,7 @@ public sealed record ManagementResultProjection(
 
 public sealed record ConfigEntryProjection(
     string Key,
+    ConfigValueWireV1? EffectiveValue,
     string? EffectiveValueJson,
     string Impact,
     string Mutability,
