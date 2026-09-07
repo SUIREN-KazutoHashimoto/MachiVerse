@@ -13,17 +13,6 @@ public sealed record WorldPersistenceMetadataSeed(
     byte[] ConfigDigest,
     ulong MasterGeneration);
 
-public sealed record HistoryRecordMaterial(
-    ulong Sequence,
-    byte[] PreviousRecordDigest,
-    string RecordType,
-    string PayloadSchemaId,
-    ushort PayloadSchemaMajor,
-    ushort PayloadSchemaMinor,
-    byte[] PayloadBytes,
-    byte[] NormalizedPayloadDigest,
-    byte[] RecordDigest);
-
 public sealed record HistoryAnchor(ulong Sequence, byte[] Digest);
 
 public enum DurableAcceptanceStatus
@@ -37,10 +26,12 @@ public sealed record DurableAcceptanceResult(DurableAcceptanceStatus Status, ulo
 public sealed partial class SqlitePersistenceStore
 {
     private const int AcceptedLifecycle = 1;
+    private const int ScheduledLifecycle = 2;
     private static readonly byte[] ZeroHash256 = new byte[32];
 
     public async Task InitializeWorldMetadataAsync(
         WorldPersistenceMetadataSeed seed,
+        HistoryRecordMaterial genesisHistory,
         CancellationToken cancellationToken = default)
     {
         if (seed.WorldId.IsZero) throw new ArgumentException("WorldId ZERO is invalid.", nameof(seed));
@@ -49,6 +40,15 @@ public sealed partial class SqlitePersistenceStore
         if (seed.MasterGeneration == 0) throw new ArgumentOutOfRangeException(nameof(seed), "MasterGeneration starts at 1.");
         RequireHash256(seed.InitialStateContinuityToken, nameof(seed.InitialStateContinuityToken));
         RequireHash256(seed.ConfigDigest, nameof(seed.ConfigDigest));
+        ValidateHistoryMaterial(genesisHistory, "world.genesis.v1");
+        if (genesisHistory.WorldId != seed.WorldId)
+            throw new InvalidDataException("persistence.history-world-mismatch");
+        if (genesisHistory.Sequence != 1 || !CryptographicOperations.FixedTimeEquals(genesisHistory.PreviousRecordDigest, ZeroHash256))
+            throw new InvalidDataException("persistence.genesis-history-anchor-invalid");
+
+        var expectedContinuity = HistoryIntegrity.ComputeGenesisContinuityToken(seed.WorldId, genesisHistory.RecordDigest);
+        if (!CryptographicOperations.FixedTimeEquals(expectedContinuity, seed.InitialStateContinuityToken))
+            throw new InvalidDataException("persistence.genesis-continuity-token-mismatch");
 
         using var transaction = _connection.BeginTransaction();
         try
@@ -60,6 +60,8 @@ public sealed partial class SqlitePersistenceStore
                 var count = Convert.ToInt32(await existing.ExecuteScalarAsync(cancellationToken), System.Globalization.CultureInfo.InvariantCulture);
                 if (count != 0) throw new InvalidDataException("persistence.meta-already-initialized");
             }
+
+            await InsertHistoryRecordAsync(genesisHistory, transaction, cancellationToken);
 
             await using (var command = _connection.CreateCommand())
             {
@@ -78,8 +80,8 @@ INSERT INTO persistence_meta (
                 command.Parameters.AddWithValue("$world_id", seed.WorldId.ToBytes());
                 command.Parameters.AddWithValue("$persistence_generation", U64Be.Encode(seed.PersistenceGeneration));
                 command.Parameters.AddWithValue("$world_seed", seed.WorldSeed.ToBytes());
-                command.Parameters.AddWithValue("$last_history_sequence", U64Be.Encode(0));
-                command.Parameters.AddWithValue("$last_history_digest", ZeroHash256);
+                command.Parameters.AddWithValue("$last_history_sequence", U64Be.Encode(genesisHistory.Sequence));
+                command.Parameters.AddWithValue("$last_history_digest", genesisHistory.RecordDigest);
                 command.Parameters.AddWithValue("$finalized_step", U64Be.Encode(0));
                 command.Parameters.AddWithValue("$state_continuity_token", seed.InitialStateContinuityToken);
                 command.Parameters.AddWithValue("$config_generation", U64Be.Encode(seed.ConfigGeneration));
@@ -142,13 +144,8 @@ VALUES (1, $master_generation, 0, NULL);
                 return new DurableAcceptanceResult(DurableAcceptanceStatus.Duplicate, duplicate.Value.AcceptedSequence);
             }
 
-            var anchor = await ReadHistoryAnchorAsync(transaction, cancellationToken);
-            if (anchor.Sequence == ulong.MaxValue) throw new OverflowException("HistorySequence cannot wrap.");
-            if (history.Sequence != anchor.Sequence + 1)
-                throw new InvalidDataException("persistence.history-sequence-gap");
-            if (!CryptographicOperations.FixedTimeEquals(history.PreviousRecordDigest, anchor.Digest))
-                throw new InvalidDataException("persistence.history-previous-digest-mismatch");
-
+            var context = await ReadHistoryContextAsync(transaction, cancellationToken);
+            ValidateNextHistoryRecord(history, context);
             await InsertHistoryRecordAsync(history, transaction, cancellationToken);
 
             await using (var operation = _connection.CreateCommand())
@@ -170,20 +167,7 @@ INSERT INTO operation_state (
                 await operation.ExecuteNonQueryAsync(cancellationToken);
             }
 
-            await using (var meta = _connection.CreateCommand())
-            {
-                meta.Transaction = transaction;
-                meta.CommandText = """
-UPDATE persistence_meta
-SET last_history_sequence=$sequence, last_history_digest=$digest
-WHERE singleton=1;
-""";
-                meta.Parameters.AddWithValue("$sequence", U64Be.Encode(history.Sequence));
-                meta.Parameters.AddWithValue("$digest", history.RecordDigest);
-                if (await meta.ExecuteNonQueryAsync(cancellationToken) != 1)
-                    throw new InvalidDataException("persistence.meta-update-failed");
-            }
-
+            await UpdateHistoryAnchorAsync(history, transaction, cancellationToken);
             transaction.Commit();
             return new DurableAcceptanceResult(DurableAcceptanceStatus.Accepted, history.Sequence);
         }
@@ -211,18 +195,33 @@ WHERE singleton=1;
         return (digest, U64Be.Decode((byte[])reader[1]));
     }
 
-    private async Task<HistoryAnchor> ReadHistoryAnchorAsync(
+    private sealed record HistoryContext(OpaqueId128 WorldId, HistoryAnchor Anchor);
+
+    private async Task<HistoryContext> ReadHistoryContextAsync(
         SqliteTransaction transaction,
         CancellationToken cancellationToken)
     {
         await using var command = _connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT last_history_sequence, last_history_digest FROM persistence_meta WHERE singleton=1;";
+        command.CommandText = "SELECT world_id, last_history_sequence, last_history_digest FROM persistence_meta WHERE singleton=1;";
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken)) throw new InvalidDataException("persistence.meta-not-initialized");
-        var digest = (byte[])reader[1];
+        var worldId = OpaqueId128.FromBytes((byte[])reader[0]);
+        var digest = (byte[])reader[2];
         RequireHash256(digest, "last_history_digest");
-        return new HistoryAnchor(U64Be.Decode((byte[])reader[0]), digest);
+        return new HistoryContext(worldId, new HistoryAnchor(U64Be.Decode((byte[])reader[1]), digest));
+    }
+
+    private static void ValidateNextHistoryRecord(HistoryRecordMaterial history, HistoryContext context)
+    {
+        if (history.WorldId != context.WorldId)
+            throw new InvalidDataException("persistence.history-world-mismatch");
+        if (context.Anchor.Sequence == ulong.MaxValue)
+            throw new OverflowException("HistorySequence cannot wrap.");
+        if (history.Sequence != context.Anchor.Sequence + 1)
+            throw new InvalidDataException("persistence.history-sequence-gap");
+        if (!CryptographicOperations.FixedTimeEquals(history.PreviousRecordDigest, context.Anchor.Digest))
+            throw new InvalidDataException("persistence.history-previous-digest-mismatch");
     }
 
     private async Task InsertHistoryRecordAsync(
@@ -255,8 +254,27 @@ INSERT INTO history_record (
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private async Task UpdateHistoryAnchorAsync(
+        HistoryRecordMaterial history,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var meta = _connection.CreateCommand();
+        meta.Transaction = transaction;
+        meta.CommandText = """
+UPDATE persistence_meta
+SET last_history_sequence=$sequence, last_history_digest=$digest
+WHERE singleton=1;
+""";
+        meta.Parameters.AddWithValue("$sequence", U64Be.Encode(history.Sequence));
+        meta.Parameters.AddWithValue("$digest", history.RecordDigest);
+        if (await meta.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidDataException("persistence.meta-update-failed");
+    }
+
     private static void ValidateHistoryMaterial(HistoryRecordMaterial history, string expectedRecordType)
     {
+        ArgumentNullException.ThrowIfNull(history);
         if (history.Sequence == 0) throw new ArgumentOutOfRangeException(nameof(history), "HistorySequence starts at 1.");
         _ = new StableToken(history.RecordType);
         _ = new StableToken(history.PayloadSchemaId);
@@ -266,6 +284,21 @@ INSERT INTO history_record (
         RequireHash256(history.NormalizedPayloadDigest, nameof(history.NormalizedPayloadDigest));
         RequireHash256(history.RecordDigest, nameof(history.RecordDigest));
         ArgumentNullException.ThrowIfNull(history.PayloadBytes);
+        if (history.NormalizedPayloadBytes.Length == 0)
+            throw new InvalidDataException("persistence.normalized-history-payload-empty");
+
+        var normalizedDigest = HashSuite.Hash256(history.NormalizedPayloadBytes);
+        if (!CryptographicOperations.FixedTimeEquals(normalizedDigest, history.NormalizedPayloadDigest))
+            throw new InvalidDataException("persistence.normalized-history-payload-digest-mismatch");
+
+        var recordDigest = HistoryIntegrity.ComputeHistoryRecordDigest(
+            history.WorldId,
+            history.Sequence,
+            history.PreviousRecordDigest,
+            new StableToken(history.RecordType),
+            history.NormalizedPayloadBytes);
+        if (!CryptographicOperations.FixedTimeEquals(recordDigest, history.RecordDigest))
+            throw new InvalidDataException("persistence.history-record-digest-mismatch");
     }
 
     private static void RequireHash256(byte[] value, string field)
