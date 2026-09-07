@@ -1,13 +1,9 @@
-using System.Runtime.CompilerServices;
 using MachiVerse.Simulation.Core.Determinism;
 using MachiVerse.Simulation.Core.Persistence;
 
 internal static class PersistenceMigrationSmoke
 {
-    [ModuleInitializer]
-    internal static void Initialize() => RunAsync().GetAwaiter().GetResult();
-
-    private static async Task RunAsync()
+    internal static async Task RunAsync()
     {
         var root = Path.Combine(Path.GetTempPath(), "machiverse-sim03-migration-" + Guid.NewGuid().ToString("N"));
         try
