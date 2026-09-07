@@ -65,7 +65,7 @@ jobs:
         run: dotnet run --project tests/MachiVerse.Gateway.SmokeTests --configuration Release
 
   general-view:
-    name: VIEW-01 General View build
+    name: General View build and smoke
     if: github.base_ref == 'view'
     runs-on: ubuntu-latest
     steps:
@@ -77,6 +77,8 @@ jobs:
           dotnet-version: 10.0.400
       - name: Build General View
         run: dotnet build src/MachiVerse.View/MachiVerse.View.csproj --configuration Release
+      - name: Run General View smoke tests
+        run: dotnet run --project tests/MachiVerse.View.SmokeTests --configuration Release
 
   administration-view:
     name: ADMIN-01 Administration View build
