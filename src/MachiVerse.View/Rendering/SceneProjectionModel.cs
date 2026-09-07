@@ -12,9 +12,12 @@ public sealed record SceneProjectionModel(
     string BasisStep,
     string ContinuityTokenHex,
     string ProjectionSchemaDigestHex,
-    IReadOnlyList<SceneProjectionRecord> Records)
+    IReadOnlyList<SceneProjectionRecord> Records,
+    IReadOnlyList<ScenePrimitive> Primitives)
 {
-    public static SceneProjectionModel FromConfirmed(ConfirmedWorldSnapshot snapshot)
+    public static SceneProjectionModel FromConfirmed(
+        ConfirmedWorldSnapshot snapshot,
+        SceneProjectionAdapterRegistry? adapters = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (snapshot.ContinuityToken.Length == 0)
@@ -31,10 +34,13 @@ public sealed record SceneProjectionModel(
                 item.Value.Revision.ToString(CultureInfo.InvariantCulture)))
             .ToArray();
 
+        var primitives = (adapters ?? SceneProjectionAdapterRegistry.Empty).Project(snapshot.Records);
+
         return new SceneProjectionModel(
             snapshot.BasisStep.ToString(CultureInfo.InvariantCulture),
             Convert.ToHexStringLower(snapshot.ContinuityToken),
             Convert.ToHexStringLower(snapshot.ProjectionSchemaDigest),
-            records);
+            records,
+            primitives);
     }
 }
