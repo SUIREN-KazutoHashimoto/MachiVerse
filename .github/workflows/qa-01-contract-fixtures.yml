@@ -1,0 +1,13 @@
+name: QA-01 Contract Fixtures
+
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify contract fixtures
+        run: python3 tools/contract-fixtures/verify.py
