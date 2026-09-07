@@ -33,7 +33,7 @@ jobs:
         run: dotnet run --project tools/MachiVerse.ContractFixtures -- verify
 
   simulation-core:
-    name: SIM-01 Core build and smoke
+    name: Simulation Core build and smoke
     if: github.base_ref == 'simulation'
     runs-on: ubuntu-latest
     steps:
@@ -49,7 +49,7 @@ jobs:
         run: dotnet run --project tests/MachiVerse.Simulation.Core.SmokeTests --configuration Release
 
   gateway:
-    name: GW-01 Gateway build and smoke
+    name: Gateway build and smoke
     if: github.base_ref == 'gateway'
     runs-on: ubuntu-latest
     steps:
@@ -65,7 +65,7 @@ jobs:
         run: dotnet run --project tests/MachiVerse.Gateway.SmokeTests --configuration Release
 
   general-view:
-    name: VIEW-01 General View build
+    name: General View build and smoke
     if: github.base_ref == 'view'
     runs-on: ubuntu-latest
     steps:
@@ -77,9 +77,12 @@ jobs:
           dotnet-version: 10.0.400
       - name: Build General View
         run: dotnet build src/MachiVerse.View/MachiVerse.View.csproj --configuration Release
+      - name: Run General View smoke tests
+        if: ${{ hashFiles('tests/MachiVerse.View.SmokeTests/MachiVerse.View.SmokeTests.csproj') != '' }}
+        run: dotnet run --project tests/MachiVerse.View.SmokeTests --configuration Release
 
   administration-view:
-    name: ADMIN-01 Administration View build
+    name: Administration View build
     if: github.base_ref == 'administration-view'
     runs-on: ubuntu-latest
     steps:
