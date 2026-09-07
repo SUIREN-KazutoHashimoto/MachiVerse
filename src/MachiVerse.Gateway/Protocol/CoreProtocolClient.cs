@@ -55,3 +55,39 @@ public sealed class ProtocolNegotiationState
         EffectiveCapabilities = new HashSet<string>(StringComparer.Ordinal);
     }
 }
+
+public sealed record SchedulingPolicySnapshot(
+    ulong OwnerConfigGeneration,
+    uint MinLeadSteps,
+    uint? DefaultDeadlineWindowSteps,
+    uint GraceSteps,
+    LatePolicyWireV1 LatePolicy);
+
+public sealed class SchedulingPolicyProjection
+{
+    private SchedulingPolicySnapshot? _current;
+
+    public SchedulingPolicySnapshot? Current => Volatile.Read(ref _current);
+
+    public SchedulingPolicySnapshot Apply(OperationSchedulingPolicyWireV1 wire)
+    {
+        ArgumentNullException.ThrowIfNull(wire);
+        if (wire.OwnerConfigGeneration == 0)
+            throw new InvalidDataException("protocol.invalid-scheduling-policy-generation");
+        if ((int)wire.LatePolicy is not (1 or 2))
+            throw new InvalidDataException("protocol.invalid-scheduling-late-policy");
+
+        var current = Current;
+        if (current is not null && wire.OwnerConfigGeneration < current.OwnerConfigGeneration)
+            throw new InvalidDataException("protocol.stale-scheduling-policy-generation");
+
+        var next = new SchedulingPolicySnapshot(
+            wire.OwnerConfigGeneration,
+            wire.MinLeadSteps,
+            wire.HasDefaultDeadlineWindowSteps ? wire.DefaultDeadlineWindowSteps : null,
+            wire.GraceSteps,
+            wire.LatePolicy);
+        Volatile.Write(ref _current, next);
+        return next;
+    }
+}
