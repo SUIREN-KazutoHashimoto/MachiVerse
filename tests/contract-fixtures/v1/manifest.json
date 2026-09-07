@@ -8,11 +8,13 @@
     "hash256-width",
     "sha256",
     "mv-dcbor-basic",
-    "domain-hash-basic"
+    "domain-hash-basic",
+    "entity-id-derivation",
+    "intent-id-derivation"
   ],
   "pending_sets": [
     "mv-dcbor-full-type-matrix",
-    "entity-intent-random-order-vectors",
+    "random-order-vectors",
     "protobuf",
     "config",
     "persistence"
