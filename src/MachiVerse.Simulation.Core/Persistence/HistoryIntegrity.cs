@@ -107,14 +107,16 @@ public static class HistoryIntegrity
         if (normalizedRecordPayload.IsEmpty)
             throw new ArgumentException("Normalized record payload cannot be empty.", nameof(normalizedRecordPayload));
 
+        var previous = previousRecordDigest.ToArray();
+        var normalized = normalizedRecordPayload.ToArray();
         return HashSuite.DomainHash("mv.history-record.v1", writer =>
         {
             writer.WriteMapStart(5);
             writer.WriteUnsigned(0); writer.WriteBytes(worldId.ToBytes());
             writer.WriteUnsigned(1); writer.WriteUnsigned(sequence);
-            writer.WriteUnsigned(2); writer.WriteBytes(previousRecordDigest);
+            writer.WriteUnsigned(2); writer.WriteBytes(previous);
             writer.WriteUnsigned(3); writer.WriteAsciiText(recordType.Value);
-            writer.WriteUnsigned(4); writer.WriteCanonicalValue(normalizedRecordPayload);
+            writer.WriteUnsigned(4); writer.WriteCanonicalValue(normalized);
         });
     }
 
@@ -124,12 +126,13 @@ public static class HistoryIntegrity
         if (genesisRecordDigest.Length != 32)
             throw new ArgumentException("Genesis record digest must be exactly 32 bytes.", nameof(genesisRecordDigest));
 
+        var genesisDigest = genesisRecordDigest.ToArray();
         return HashSuite.DomainHash("mv.state-continuity.v1", writer =>
         {
             writer.WriteMapStart(3);
             writer.WriteUnsigned(0); writer.WriteBytes(worldId.ToBytes());
             writer.WriteUnsigned(1); writer.WriteUnsigned(0);
-            writer.WriteUnsigned(2); writer.WriteBytes(genesisRecordDigest);
+            writer.WriteUnsigned(2); writer.WriteBytes(genesisDigest);
         });
     }
 
@@ -146,13 +149,15 @@ public static class HistoryIntegrity
         if (transitionCommitRecordDigest.Length != 32)
             throw new ArgumentException("Transition commit digest must be exactly 32 bytes.", nameof(transitionCommitRecordDigest));
 
+        var previous = previousToken.ToArray();
+        var transitionDigest = transitionCommitRecordDigest.ToArray();
         return HashSuite.DomainHash("mv.state-continuity.v1", writer =>
         {
             writer.WriteMapStart(4);
             writer.WriteUnsigned(0); writer.WriteBytes(worldId.ToBytes());
             writer.WriteUnsigned(1); writer.WriteUnsigned(resultingStep);
-            writer.WriteUnsigned(2); writer.WriteBytes(previousToken);
-            writer.WriteUnsigned(3); writer.WriteBytes(transitionCommitRecordDigest);
+            writer.WriteUnsigned(2); writer.WriteBytes(previous);
+            writer.WriteUnsigned(3); writer.WriteBytes(transitionDigest);
         });
     }
 }
