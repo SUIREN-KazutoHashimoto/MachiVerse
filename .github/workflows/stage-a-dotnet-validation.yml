@@ -1,0 +1,78 @@
+name: Stage A .NET validation
+
+on:
+  push:
+    branches:
+      - ci/stage-a-dotnet-validation
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - .github/workflows/stage-a-dotnet-validation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage-a-dotnet-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: ${{ matrix.work_id }} ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - work_id: QA-01
+            label: contract-fixtures
+            ref: feature/qa-01-contract-fixtures
+            project: tools/MachiVerse.ContractFixtures/MachiVerse.ContractFixtures.csproj
+            smoke: tools/MachiVerse.ContractFixtures/MachiVerse.ContractFixtures.csproj
+          - work_id: SIM-01
+            label: simulation-core
+            ref: feature/sim-01-core-foundation
+            project: src/MachiVerse.Simulation.Core/MachiVerse.Simulation.Core.csproj
+            smoke: tests/MachiVerse.Simulation.Core.SmokeTests/MachiVerse.Simulation.Core.SmokeTests.csproj
+          - work_id: GW-01
+            label: gateway
+            ref: feature/gw-01-gateway-foundation
+            project: src/MachiVerse.Gateway/MachiVerse.Gateway.csproj
+            smoke: tests/MachiVerse.Gateway.SmokeTests/MachiVerse.Gateway.SmokeTests.csproj
+          - work_id: VIEW-01
+            label: general-view
+            ref: feature/view-01-protocol-client-foundation
+            project: src/MachiVerse.View/MachiVerse.View.csproj
+            smoke: ""
+          - work_id: ADMIN-01
+            label: administration-view
+            ref: feature/admin-01-protocol-client-foundation
+            project: src/MachiVerse.Administration.View/MachiVerse.Administration.View.csproj
+            smoke: ""
+
+    steps:
+      - name: Checkout ${{ matrix.work_id }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+          persist-credentials: false
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Show SDK
+        run: dotnet --info
+
+      - name: Restore ${{ matrix.work_id }}
+        run: dotnet restore "${{ matrix.project }}"
+
+      - name: Build ${{ matrix.work_id }}
+        run: dotnet build "${{ matrix.project }}" --configuration Release --no-restore
+
+      - name: Smoke / contract validation ${{ matrix.work_id }}
+        if: ${{ matrix.smoke != '' }}
+        run: dotnet run --project "${{ matrix.smoke }}" --configuration Release
