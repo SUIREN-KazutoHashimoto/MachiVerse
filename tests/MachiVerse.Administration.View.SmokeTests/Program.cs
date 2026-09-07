@@ -6,14 +6,14 @@ var store = new MonitoringProjectionStore();
 
 var target = new ComponentTargetV1
 {
-    ComponentKind = ComponentKindV1.Gateway,
+    ComponentKind = (ComponentKindV1)2, // COMPONENT_KIND_GATEWAY
     LogicalInstanceId = Id(1),
 };
 
 var health = new ComponentHealthV1
 {
     Target = target,
-    Health = HealthStateV1.Healthy,
+    Health = (HealthStateV1)1, // HEALTH_STATE_HEALTHY
 };
 health.Metrics.Add(new MetricSampleV1
 {
@@ -24,7 +24,7 @@ health.Metrics.Add(new MetricSampleV1
 health.Conditions.Add(new HealthConditionV1
 {
     Code = "gateway.ready",
-    Severity = HealthConditionSeverityV1.Info,
+    Severity = (HealthConditionSeverityV1)1, // HEALTH_CONDITION_SEVERITY_INFO
     Diagnostic = "fixture-ready",
 });
 
@@ -38,7 +38,7 @@ logPage.Records.Add(new StructuredLogRecordV1
 {
     RecordId = Id(2),
     TimestampUnixMillis = 1100,
-    Severity = LogSeverityV1.Information,
+    Severity = (LogSeverityV1)3, // LOG_SEVERITY_INFORMATION
     EventKind = "gateway.fixture",
     Source = target,
     CorrelationId = Id(3),
