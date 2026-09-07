@@ -273,6 +273,8 @@ message LogQueryV1 {
   optional uint64 basis_step = 7;
   uint32 page_size = 8;
   optional bytes cursor = 9;
+  repeated LogSeverityV1 severities = 10;
+  optional uint64 master_generation = 11;
 }
 
 enum LogSeverityV1 {
@@ -302,6 +304,7 @@ message StructuredLogRecordV1 {
   optional uint64 simulation_step = 9;
   repeated KeyValueV1 attributes = 10;
   string diagnostic = 11;
+  optional uint64 master_generation = 12;
 }
 
 message LogPageV1 {
@@ -331,6 +334,8 @@ message ConfigEntryWireV1 {
   string impact = 3;
   string mutability = 4;
   bool sensitive = 5;
+  bool value_redacted = 6;
+  repeated string validation_codes = 7;
 }
 
 message ConfigReadResultV1 {
@@ -393,9 +398,225 @@ message AuditRecordWireV1 {
   string target_kind = 8;
   string result_code = 9;
   repeated KeyValueV1 attributes = 10;
+  optional uint64 session_generation = 11;
+  optional bytes correlation_id = 12;
+  optional bytes plan_id = 13;
+  optional bytes plan_digest = 14;
+  optional uint64 effective_step = 15;
+  optional uint64 resulting_config_generation = 16;
+  optional uint64 addon_inventory_generation = 17;
+  repeated string permission_context = 18;
 }
 
 message AuditPageV1 {
   repeated AuditRecordWireV1 records = 1;
   optional bytes next_cursor = 2;
+}
+
+enum AdminRiskLevelV1 {
+  ADMIN_RISK_LEVEL_UNSPECIFIED = 0;
+  ADMIN_RISK_LEVEL_LOW = 1;
+  ADMIN_RISK_LEVEL_MEDIUM = 2;
+  ADMIN_RISK_LEVEL_HIGH = 3;
+  ADMIN_RISK_LEVEL_CRITICAL = 4;
+}
+
+enum AdminRequiredBoundaryV1 {
+  ADMIN_REQUIRED_BOUNDARY_UNSPECIFIED = 0;
+  ADMIN_REQUIRED_BOUNDARY_NONE = 1;
+  ADMIN_REQUIRED_BOUNDARY_SAFE_STEP = 2;
+  ADMIN_REQUIRED_BOUNDARY_RESTART = 3;
+  ADMIN_REQUIRED_BOUNDARY_WORLD_REGENERATION = 4;
+}
+
+enum AddonTrustTierV1 {
+  ADDON_TRUST_TIER_UNSPECIFIED = 0;
+  ADDON_TRUST_TIER_OFFICIAL = 1;
+  ADDON_TRUST_TIER_THIRD_PARTY_LOCAL_TRUST = 2;
+  ADDON_TRUST_TIER_THIRD_PARTY_UNKNOWN = 3;
+}
+
+enum AddonInstallStateV1 {
+  ADDON_INSTALL_STATE_UNSPECIFIED = 0;
+  ADDON_INSTALL_STATE_ABSENT = 1;
+  ADDON_INSTALL_STATE_STAGED = 2;
+  ADDON_INSTALL_STATE_VALIDATED = 3;
+  ADDON_INSTALL_STATE_INSTALLED = 4;
+  ADDON_INSTALL_STATE_FAILED = 5;
+}
+
+enum AddonActivationStateV1 {
+  ADDON_ACTIVATION_STATE_UNSPECIFIED = 0;
+  ADDON_ACTIVATION_STATE_INACTIVE = 1;
+  ADDON_ACTIVATION_STATE_ACTIVE = 2;
+  ADDON_ACTIVATION_STATE_APPLY_PENDING = 3;
+  ADDON_ACTIVATION_STATE_RESTART_REQUIRED = 4;
+  ADDON_ACTIVATION_STATE_FAILED = 5;
+}
+
+enum AddonSignatureStateV1 {
+  ADDON_SIGNATURE_STATE_UNSPECIFIED = 0;
+  ADDON_SIGNATURE_STATE_VERIFIED = 1;
+  ADDON_SIGNATURE_STATE_INVALID = 2;
+  ADDON_SIGNATURE_STATE_UNVERIFIED = 3;
+  ADDON_SIGNATURE_STATE_NOT_PRESENT = 4;
+}
+
+message AddonDependencyWireV1 {
+  string addon_id = 1;
+  string version_range = 2;
+}
+
+message AddonInventoryQueryV1 {
+  repeated ComponentTargetV1 targets = 1;
+  optional string addon_id = 2;
+  uint32 page_size = 3;
+  optional bytes cursor = 4;
+}
+
+message AddonInventoryItemV1 {
+  string addon_id = 1;
+  string addon_version = 2;
+  ComponentTargetV1 target = 3;
+  AddonInstallStateV1 install_state = 4;
+  AddonActivationStateV1 activation_state = 5;
+  AddonTrustTierV1 trust_tier = 6;
+  bytes artifact_sha256 = 7;
+  optional string publisher_id = 8;
+  AddonSignatureStateV1 signature_state = 9;
+  repeated string required_capabilities = 10;
+  repeated string provided_capabilities = 11;
+  repeated AddonDependencyWireV1 dependencies = 12;
+  optional string config_schema_version = 13;
+  optional string persistent_data_state = 14;
+  optional string available_update_version = 15;
+}
+
+message AddonInventoryResultV1 {
+  ResultV1 result = 1;
+  uint64 inventory_generation = 2;
+  repeated AddonInventoryItemV1 items = 3;
+  optional bytes next_cursor = 4;
+}
+
+message AddonCatalogQueryV1 {
+  optional string search_text = 1;
+  optional ComponentKindV1 target_component_kind = 2;
+  uint32 page_size = 3;
+  optional bytes cursor = 4;
+}
+
+message AddonCatalogItemV1 {
+  bytes catalog_item_ref = 1;
+  string addon_id = 2;
+  string addon_version = 3;
+  string display_name = 4;
+  repeated ComponentKindV1 target_component_kinds = 5;
+  string required_protocol_range = 6;
+  repeated string required_capabilities = 7;
+  repeated AddonDependencyWireV1 dependencies = 8;
+  bytes artifact_sha256 = 9;
+  string publisher_id = 10;
+  string signature_algorithm = 11;
+  bytes manifest_signature = 12;
+  optional string release_notes_uri = 13;
+}
+
+message AddonCatalogPageV1 {
+  ResultV1 result = 1;
+  repeated AddonCatalogItemV1 items = 2;
+  optional bytes next_cursor = 3;
+}
+
+enum AddonActionKindV1 {
+  ADDON_ACTION_KIND_UNSPECIFIED = 0;
+  ADDON_ACTION_KIND_INSTALL = 1;
+  ADDON_ACTION_KIND_UPDATE = 2;
+  ADDON_ACTION_KIND_DISABLE = 3;
+  ADDON_ACTION_KIND_REMOVE = 4;
+}
+
+enum AddonPackageSourceV1 {
+  ADDON_PACKAGE_SOURCE_UNSPECIFIED = 0;
+  ADDON_PACKAGE_SOURCE_OFFICIAL_CATALOG = 1;
+  ADDON_PACKAGE_SOURCE_STAGED_PACKAGE = 2;
+}
+
+message AddonActionIntentV1 {
+  AddonActionKindV1 action = 1;
+  AddonPackageSourceV1 source = 2;
+  optional bytes catalog_item_ref = 3;
+  optional bytes staged_package_id = 4;
+  string expected_addon_id = 5;
+  optional string expected_version = 6;
+  bytes expected_artifact_sha256 = 7;
+  ComponentTargetV1 target = 8;
+}
+
+message AdminActionPrepareV1 {
+  oneof action {
+    ConfigChangeRequestV1 config_change = 1;
+    OperationalCommandV1 operational_command = 2;
+    StandardOperationV1 simulation_operation = 3;
+    AddonActionIntentV1 addon_action = 4;
+  }
+}
+
+message AdminActionPlanV1 {
+  ResultV1 result = 1;
+  bytes plan_id = 2;
+  bytes plan_digest = 3;
+  string action_kind = 4;
+  bytes operation_id = 5;
+  bytes immutable_payload_digest = 6;
+  ComponentTargetV1 target = 7;
+  AdminRiskLevelV1 risk_level = 8;
+  repeated string required_permissions = 9;
+  bool simulation_affecting = 10;
+  AdminRequiredBoundaryV1 required_boundary = 11;
+  repeated string dependency_impact_codes = 12;
+  repeated string warning_codes = 13;
+  uint64 session_generation = 14;
+  uint64 expires_at_unix_millis = 15;
+  bytes confirmation_challenge_id = 16;
+  uint64 confirmation_challenge_expires_at_unix_millis = 17;
+}
+
+message AdminActionConfirmV1 {
+  bytes plan_id = 1;
+  bytes plan_digest = 2;
+  bytes confirmation_challenge_id = 3;
+  bytes operation_id = 4;
+  uint64 session_generation = 5;
+}
+
+message AdminActionConfirmationV1 {
+  ResultV1 result = 1;
+  bytes plan_id = 2;
+  bytes plan_digest = 3;
+  bytes confirmation_id = 4;
+  bytes confirmation_digest = 5;
+  uint64 session_generation = 6;
+  uint64 expires_at_unix_millis = 7;
+}
+
+message AdminActionCommitV1 {
+  bytes plan_id = 1;
+  bytes plan_digest = 2;
+  bytes confirmation_id = 3;
+  bytes confirmation_digest = 4;
+  bytes operation_id = 5;
+  bytes immutable_payload_digest = 6;
+  uint64 session_generation = 7;
+}
+
+message AdminActionResultV1 {
+  ResultV1 result = 1;
+  bytes operation_id = 2;
+  string action_kind = 3;
+  ComponentTargetV1 target = 4;
+  optional uint64 effective_step = 5;
+  AdminRequiredBoundaryV1 applied_boundary = 6;
+  optional uint64 resulting_config_generation = 7;
+  optional uint64 addon_inventory_generation = 8;
 }
