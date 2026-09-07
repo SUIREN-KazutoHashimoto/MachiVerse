@@ -14,31 +14,27 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
     private ManagementChannelState _commandChannel = new(ManagementAccessState.Unavailable, "management.not-loaded");
 
     public ManagementProjectionStore(OperationalCommandCatalog commandCatalog)
-    {
-        _commandCatalog = commandCatalog;
-    }
+        => _commandCatalog = commandCatalog ?? throw new ArgumentNullException(nameof(commandCatalog));
 
     public event Action? Changed;
 
     public ManagementSnapshot Snapshot => new(
-        ConfigTargets: _configTargets.Values.OrderBy(static x => x.TargetKey, StringComparer.Ordinal).ToArray(),
-        Mutations: _mutations.Values.OrderBy(static x => x.OperationId, StringComparer.Ordinal).ToArray(),
-        ConfigChannel: _configChannel,
-        CommandChannel: _commandChannel);
+        _configTargets.Values.OrderBy(static x => x.TargetKey, StringComparer.Ordinal).ToArray(),
+        _mutations.Values.OrderBy(static x => x.OperationId, StringComparer.Ordinal).ToArray(),
+        _configChannel,
+        _commandChannel);
 
     public ConfigReadRequestV1 BuildConfigRead(ComponentTargetV1 target, IEnumerable<string>? keys = null)
     {
         ValidateTarget(target);
         var request = new ConfigReadRequestV1 { Target = target.Clone() };
-        if (keys is null)
+        if (keys is not null)
         {
-            return request;
+            request.Keys.Add(keys
+                .Select(ValidateConfigKey)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(static key => key, StringComparer.Ordinal));
         }
-
-        request.Keys.Add(keys
-            .Select(ValidateConfigKey)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(static key => key, StringComparer.Ordinal));
         return request;
     }
 
@@ -49,20 +45,13 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
         {
             throw new InvalidOperationException("Config change draft requires a confirmed non-zero ConfigGeneration.");
         }
-
-        return new ConfigChangeDraft(
-            ProjectionTarget(current),
-            current.ConfigGeneration,
-            Array.Empty<ConfigChangeEdit>());
+        return new ConfigChangeDraft(ProjectionTarget(current), current.ConfigGeneration, Array.Empty<ConfigChangeEdit>());
     }
 
     public ConfigChangeDraft CreateValueReturnDraft(
         ConfigTargetProjection current,
         IEnumerable<ConfigChangeEdit> desiredValues)
-    {
-        var draft = CreateDraft(current);
-        return draft.WithEdits(NormalizeEdits(desiredValues));
-    }
+        => CreateDraft(current).WithEdits(NormalizeEdits(desiredValues));
 
     public ConfigChangeRequestV1 PrepareConfigChange(
         ConfigChangeDraft draft,
@@ -110,7 +99,7 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
             ManagementIdentity.TargetKey(draft.Target),
             "config.change",
             draft.BaseConfigGeneration);
-        _configChangeRequests[operationKey] = request.Clone();
+        StoreConfigChangeRequest(operationKey, request);
         Changed?.Invoke();
         return request;
     }
@@ -131,24 +120,7 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
                 $"Operational command '{commandKind}' is not registered for target '{target.ComponentKind}'.");
         }
 
-        if (descriptor.StateChanging)
-        {
-            if (operationId is null || immutablePayloadDigest is null)
-            {
-                throw new InvalidDataException("State-changing operational command requires OperationId and immutable payload digest.");
-            }
-            ValidateId128(operationId, nameof(operationId));
-            ValidateHash256(immutablePayloadDigest, nameof(immutablePayloadDigest));
-        }
-        else if (operationId is not null || immutablePayloadDigest is not null)
-        {
-            if (operationId is null || immutablePayloadDigest is null)
-            {
-                throw new InvalidDataException("Operational command identity must include both OperationId and immutable payload digest.");
-            }
-            ValidateId128(operationId, nameof(operationId));
-            ValidateHash256(immutablePayloadDigest, nameof(immutablePayloadDigest));
-        }
+        ValidateOptionalIdentity(descriptor.StateChanging, operationId, immutablePayloadDigest);
 
         var command = new OperationalCommandV1
         {
@@ -175,7 +147,7 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
                 ManagementIdentity.TargetKey(target),
                 descriptor.CommandKind,
                 expectedBaseGeneration: null);
-            _commandRequests[operationKey] = command.Clone();
+            StoreCommandRequest(operationKey, command);
         }
 
         _commandChannel = new ManagementChannelState(ManagementAccessState.Available);
@@ -185,8 +157,7 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
 
     public ConfigChangeRequestV1 RetryConfigChange(ByteString operationId)
     {
-        ValidateId128(operationId, nameof(operationId));
-        var key = ManagementIdentity.Hex(operationId);
+        var key = IdentityKey(operationId, nameof(operationId));
         return _configChangeRequests.TryGetValue(key, out var request)
             ? request.Clone()
             : throw new KeyNotFoundException($"Unknown Config change OperationId '{key}'.");
@@ -194,8 +165,7 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
 
     public OperationalCommandV1 RetryOperationalCommand(ByteString operationId)
     {
-        ValidateId128(operationId, nameof(operationId));
-        var key = ManagementIdentity.Hex(operationId);
+        var key = IdentityKey(operationId, nameof(operationId));
         return _commandRequests.TryGetValue(key, out var request)
             ? request.Clone()
             : throw new KeyNotFoundException($"Unknown command OperationId '{key}'.");
@@ -205,7 +175,14 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
         => UpdateMutationState(operationId, ManagementMutationState.Submitted, null, 0, "Unspecified", null, null);
 
     public void MarkDeliveryUnknown(ByteString operationId)
-        => UpdateMutationState(operationId, ManagementMutationState.DeliveryUnknown, "request.delivery-unknown", 3, "ReconnectThenRetry", null, null);
+        => UpdateMutationState(
+            operationId,
+            ManagementMutationState.DeliveryUnknown,
+            "request.delivery-unknown",
+            3,
+            "ReconnectThenRetry",
+            null,
+            null);
 
     public void SetAccess(ManagementAccessState config, ManagementAccessState command, string? reasonCode = null)
     {
@@ -243,6 +220,7 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
             throw new InvalidDataException("Config read result target is required.");
         }
         ValidateTarget(wire.Target);
+        var result = ManagementResultProjection.FromWire(wire.Result);
 
         var entries = new List<ConfigEntryProjection>(wire.Entries.Count);
         string? previous = null;
@@ -254,7 +232,6 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
                 throw new InvalidDataException($"Duplicate Config key '{key}' in read result.");
             }
             previous = key;
-
             entries.Add(new ConfigEntryProjection(
                 key,
                 entry.Sensitive || entry.EffectiveValue is null
@@ -269,8 +246,15 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
         var digest = wire.ConfigDigest.Length == 0
             ? null
             : ValidateHash256(wire.ConfigDigest, nameof(wire.ConfigDigest));
+        if (result.StatusValue is 1 or 4 && (wire.ConfigGeneration == 0 || digest is null))
+        {
+            throw new InvalidDataException("Successful Config read result requires ConfigGeneration and ConfigDigest.");
+        }
+
         var targetKey = ManagementIdentity.TargetKey(wire.Target);
-        var instanceId = wire.Target.HasLogicalInstanceId ? ManagementIdentity.Hex(wire.Target.LogicalInstanceId) : null;
+        var instanceId = wire.Target.HasLogicalInstanceId
+            ? ManagementIdentity.Hex(wire.Target.LogicalInstanceId)
+            : null;
         _configTargets[targetKey] = new ConfigTargetProjection(
             targetKey,
             wire.Target.ComponentKind.ToString(),
@@ -278,8 +262,8 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
             wire.ConfigGeneration,
             digest,
             entries,
-            ManagementResultProjection.FromWire(wire.Result));
-        _configChannel = new ManagementChannelState(ManagementAccessState.Available);
+            result);
+        _configChannel = ChannelForResult(result);
         Changed?.Invoke();
     }
 
@@ -287,37 +271,45 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
     {
         var operationId = RequireOperationContextId(envelope);
         var key = ManagementIdentity.Hex(operationId);
-        if (!_mutations.TryGetValue(key, out var mutation))
+        if (!_mutations.TryGetValue(key, out var mutation) || mutation.Kind != ManagementMutationKind.ConfigChange)
         {
-            throw new InvalidDataException($"Config change result references unknown OperationId '{key}'.");
-        }
-        if (mutation.Kind != ManagementMutationKind.ConfigChange)
-        {
-            throw new InvalidDataException($"OperationId '{key}' is not a Config change request.");
+            throw new InvalidDataException($"Config change result references unknown or non-Config OperationId '{key}'.");
         }
         ValidateContextDigest(envelope, mutation);
 
         var result = ManagementResultProjection.FromWire(wire.Result);
-        var state = ResultState(result.StatusValue, result.Code);
+        if (result.StatusValue is 1 or 4)
+        {
+            if (wire.ResultingGeneration == 0)
+            {
+                throw new InvalidDataException("Successful Config change result requires resulting ConfigGeneration.");
+            }
+            if (wire.ResultingConfigDigest.Length != 32)
+            {
+                throw new InvalidDataException("Successful Config change result requires resulting ConfigDigest Hash256.");
+            }
+        }
+        else if (wire.ResultingConfigDigest.Length != 0)
+        {
+            ValidateHash256(wire.ResultingConfigDigest, nameof(wire.ResultingConfigDigest));
+        }
+
         _mutations[key] = mutation with
         {
-            State = state,
+            State = ResultState(result.StatusValue, result.Code),
             ResultCode = result.Code,
             RetryAdviceValue = result.RetryAdviceValue,
             RetryAdvice = result.RetryAdvice,
             ResultingGeneration = wire.ResultingGeneration == 0 ? null : wire.ResultingGeneration,
             EffectiveStep = wire.HasEffectiveStep ? wire.EffectiveStep : null,
         };
-        _configChannel = result.Code == "auth.unauthorized"
-            ? new ManagementChannelState(ManagementAccessState.Unauthorized, result.Code)
-            : new ManagementChannelState(ManagementAccessState.Available);
+        _configChannel = ChannelForResult(result);
         Changed?.Invoke();
     }
 
     private void ApplyOperationResult(OperationStatusResultV1 wire)
     {
-        ValidateId128(wire.OperationId, nameof(wire.OperationId));
-        var key = ManagementIdentity.Hex(wire.OperationId);
+        var key = IdentityKey(wire.OperationId, nameof(wire.OperationId));
         if (!_mutations.TryGetValue(key, out var mutation))
         {
             return;
@@ -326,8 +318,10 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
         if (wire.HasOperationPayloadDigest)
         {
             ValidateHash256(wire.OperationPayloadDigest, nameof(wire.OperationPayloadDigest));
-            var digest = ManagementIdentity.Hex(wire.OperationPayloadDigest);
-            if (!string.Equals(digest, mutation.ImmutablePayloadDigest, StringComparison.Ordinal))
+            if (!string.Equals(
+                    ManagementIdentity.Hex(wire.OperationPayloadDigest),
+                    mutation.ImmutablePayloadDigest,
+                    StringComparison.Ordinal))
             {
                 throw new InvalidDataException("Same OperationId returned with a different immutable payload digest.");
             }
@@ -352,6 +346,18 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
             RetryAdvice = terminal?.RetryAdvice ?? mutation.RetryAdvice,
             EffectiveStep = wire.HasEffectiveStep ? wire.EffectiveStep : mutation.EffectiveStep,
         };
+
+        if (terminal is not null)
+        {
+            if (mutation.Kind == ManagementMutationKind.ConfigChange)
+            {
+                _configChannel = ChannelForResult(terminal);
+            }
+            else
+            {
+                _commandChannel = ChannelForResult(terminal);
+            }
+        }
         Changed?.Invoke();
     }
 
@@ -365,9 +371,13 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
     {
         if (_mutations.TryGetValue(operationId, out var existing))
         {
-            if (!string.Equals(existing.ImmutablePayloadDigest, digest, StringComparison.Ordinal))
+            if (!string.Equals(existing.ImmutablePayloadDigest, digest, StringComparison.Ordinal)
+                || existing.Kind != kind
+                || !string.Equals(existing.TargetKey, targetKey, StringComparison.Ordinal)
+                || !string.Equals(existing.RequestKind, requestKind, StringComparison.Ordinal)
+                || existing.ExpectedBaseGeneration != expectedBaseGeneration)
             {
-                throw new InvalidDataException("Same OperationId cannot be reused with a different immutable payload digest.");
+                throw new InvalidDataException("OperationId cannot be reused for a different immutable management request.");
             }
             return;
         }
@@ -387,6 +397,32 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
             EffectiveStep: null));
     }
 
+    private void StoreConfigChangeRequest(string operationId, ConfigChangeRequestV1 request)
+    {
+        if (_configChangeRequests.TryGetValue(operationId, out var existing))
+        {
+            if (!existing.Equals(request))
+            {
+                throw new InvalidDataException("Stored Config request content cannot change for an existing OperationId.");
+            }
+            return;
+        }
+        _configChangeRequests.Add(operationId, request.Clone());
+    }
+
+    private void StoreCommandRequest(string operationId, OperationalCommandV1 request)
+    {
+        if (_commandRequests.TryGetValue(operationId, out var existing))
+        {
+            if (!existing.Equals(request))
+            {
+                throw new InvalidDataException("Stored command request content cannot change for an existing OperationId.");
+            }
+            return;
+        }
+        _commandRequests.Add(operationId, request.Clone());
+    }
+
     private void UpdateMutationState(
         ByteString operationId,
         ManagementMutationState state,
@@ -396,13 +432,11 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
         ulong? resultingGeneration,
         ulong? effectiveStep)
     {
-        ValidateId128(operationId, nameof(operationId));
-        var key = ManagementIdentity.Hex(operationId);
+        var key = IdentityKey(operationId, nameof(operationId));
         if (!_mutations.TryGetValue(key, out var mutation))
         {
             throw new KeyNotFoundException($"Unknown management OperationId '{key}'.");
         }
-
         _mutations[key] = mutation with
         {
             State = state,
@@ -415,14 +449,21 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
         Changed?.Invoke();
     }
 
+    private static ManagementChannelState ChannelForResult(ManagementResultProjection result)
+        => result.Code switch
+        {
+            "auth.unauthorized" or "auth.session-stale" => new(ManagementAccessState.Unauthorized, result.Code),
+            "protocol.capability-missing" => new(ManagementAccessState.CapabilityMissing, result.Code),
+            _ => new(ManagementAccessState.Available),
+        };
+
     private static ManagementMutationState ResultState(int status, string code)
         => status switch
         {
             1 => ManagementMutationState.Terminal,
             2 => ManagementMutationState.Accepted,
             3 => ManagementMutationState.Pending,
-            4 => ManagementMutationState.Terminal,
-            5 => ManagementMutationState.Terminal,
+            4 or 5 => ManagementMutationState.Terminal,
             6 when string.Equals(code, "config.stale-generation", StringComparison.Ordinal) => ManagementMutationState.StaleGeneration,
             6 => ManagementMutationState.Rejected,
             7 => ManagementMutationState.Failed,
@@ -457,10 +498,9 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
         }
         foreach (var ch in key)
         {
-            var valid = ch is >= 'a' and <= 'z'
+            if (!(ch is >= 'a' and <= 'z'
                 || ch is >= '0' and <= '9'
-                || ch is '.' or '_' or '-';
-            if (!valid)
+                || ch is '.' or '_' or '-'))
             {
                 throw new InvalidDataException($"Config key '{key}' is not canonical ASCII field-path syntax.");
             }
@@ -496,6 +536,26 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
         }
     }
 
+    private static void ValidateOptionalIdentity(
+        bool required,
+        ByteString? operationId,
+        ByteString? immutablePayloadDigest)
+    {
+        if (required && (operationId is null || immutablePayloadDigest is null))
+        {
+            throw new InvalidDataException("State-changing operational command requires OperationId and immutable payload digest.");
+        }
+        if ((operationId is null) != (immutablePayloadDigest is null))
+        {
+            throw new InvalidDataException("Operational command identity must include both OperationId and immutable payload digest.");
+        }
+        if (operationId is not null)
+        {
+            ValidateId128(operationId, nameof(operationId));
+            ValidateHash256(immutablePayloadDigest!, nameof(immutablePayloadDigest));
+        }
+    }
+
     private static ByteString RequireOperationContextId(WireEnvelopeV1 envelope)
     {
         if (envelope.OperationContext is null || !envelope.OperationContext.HasOperationId)
@@ -513,11 +573,19 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
             return;
         }
         ValidateHash256(envelope.OperationContext.OperationPayloadDigest, "operation_context.operation_payload_digest");
-        var digest = ManagementIdentity.Hex(envelope.OperationContext.OperationPayloadDigest);
-        if (!string.Equals(digest, mutation.ImmutablePayloadDigest, StringComparison.Ordinal))
+        if (!string.Equals(
+                ManagementIdentity.Hex(envelope.OperationContext.OperationPayloadDigest),
+                mutation.ImmutablePayloadDigest,
+                StringComparison.Ordinal))
         {
             throw new InvalidDataException("Same OperationId returned with a different immutable payload digest.");
         }
+    }
+
+    private static string IdentityKey(ByteString value, string fieldName)
+    {
+        ValidateId128(value, fieldName);
+        return ManagementIdentity.Hex(value);
     }
 
     private static void ValidateId128(ByteString value, string fieldName)
@@ -527,7 +595,6 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
         {
             throw new InvalidDataException($"{fieldName} must be a non-zero Id128.");
         }
-
         var allZero = true;
         foreach (var octet in value.Span)
         {
