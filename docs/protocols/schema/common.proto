@@ -1,0 +1,213 @@
+syntax = "proto3";
+
+package machiverse.protocol.v1;
+
+option csharp_namespace = "MachiVerse.Protocol.V1";
+
+// Canonical wire declaration for Standard Protocol v1 common types.
+// Semantic validation rules are defined by docs/design/phase4-protocol-schema.md
+// and docs/design/phase4-cross-consistency-resolution.md.
+
+service MachiVerseInternalProtocolV1 {
+  rpc Connect(stream WireEnvelopeV1) returns (stream WireEnvelopeV1);
+}
+
+message ProtocolVersionV1 {
+  uint32 major = 1;
+  uint32 minor = 2;
+}
+
+message SchemaVersionWireV1 {
+  uint32 major = 1;
+  uint32 minor = 2;
+}
+
+message AddonDescriptorWireV1 {
+  string addon_id = 1;
+  string addon_version = 2;
+  repeated string provided_capabilities = 3;
+  repeated string required_capabilities = 4;
+}
+
+message ProtocolHelloV1 {
+  string protocol_id = 1;
+  repeated SupportedVersionRangeV1 supported_versions = 2;
+  repeated string provided_capabilities = 3;
+  repeated string required_capabilities = 4;
+  repeated AddonDescriptorWireV1 addons = 5;
+}
+
+message SupportedVersionRangeV1 {
+  uint32 major = 1;
+  uint32 min_minor = 2;
+  uint32 max_minor = 3;
+}
+
+message ProtocolAcceptV1 {
+  ProtocolVersionV1 negotiated_version = 1;
+  uint32 negotiation_generation = 2;
+  repeated string effective_optional_capabilities = 3;
+}
+
+message ProtocolRejectV1 {
+  string code = 1;
+  string diagnostic = 2;
+}
+
+message WorldContextWireV1 {
+  bytes world_id = 1;
+  optional uint64 basis_step = 2;
+  optional uint64 effective_step = 3;
+  optional uint64 master_generation = 4;
+  optional uint64 config_generation = 5;
+}
+
+message OperationContextWireV1 {
+  optional bytes operation_id = 1;
+  optional bytes operation_payload_digest = 2;
+  optional bytes batch_id = 3;
+}
+
+enum CompressionKindV1 {
+  COMPRESSION_KIND_UNSPECIFIED = 0;
+  COMPRESSION_KIND_NONE = 1;
+  COMPRESSION_KIND_GZIP = 2;
+}
+
+message WireEnvelopeV1 {
+  uint32 envelope_version = 1;
+  string protocol_id = 2;
+  ProtocolVersionV1 protocol_version = 3;
+  uint32 negotiation_generation = 4;
+  string message_type = 5;
+  bytes message_id = 6;
+  bytes correlation_id = 7;
+  optional bytes causation_id = 8;
+  bytes sender_instance_id = 9;
+  optional WorldContextWireV1 world_context = 10;
+  optional OperationContextWireV1 operation_context = 11;
+  string payload_schema_id = 12;
+  SchemaVersionWireV1 payload_schema_version = 13;
+  CompressionKindV1 payload_compression = 14;
+  bytes payload = 15;
+}
+
+enum ResultStatusV1 {
+  RESULT_STATUS_UNSPECIFIED = 0;
+  RESULT_STATUS_SUCCESS = 1;
+  RESULT_STATUS_ACCEPTED = 2;
+  RESULT_STATUS_PENDING = 3;
+  RESULT_STATUS_NO_CHANGE = 4;
+  RESULT_STATUS_DUPLICATE = 5;
+  RESULT_STATUS_REJECTED = 6;
+  RESULT_STATUS_FAILED = 7;
+}
+
+enum RetryAdviceV1 {
+  RETRY_ADVICE_UNSPECIFIED = 0;
+  RETRY_ADVICE_DO_NOT_RETRY = 1;
+  RETRY_ADVICE_RETRY_SAME_IDENTITY = 2;
+  RETRY_ADVICE_RECONNECT_THEN_RETRY = 3;
+  RETRY_ADVICE_RESYNC_THEN_RETRY = 4;
+  RETRY_ADVICE_RENEGOTIATE_THEN_RETRY = 5;
+}
+
+message ResultDetailV1 {
+  string key = 1;
+  string value = 2;
+}
+
+message ResultV1 {
+  ResultStatusV1 status = 1;
+  string code = 2;
+  RetryAdviceV1 retry_advice = 3;
+  string diagnostic = 4;
+  repeated ResultDetailV1 details = 5;
+}
+
+enum PublicationKindV1 {
+  PUBLICATION_KIND_UNSPECIFIED = 0;
+  PUBLICATION_KIND_FULL = 1;
+  PUBLICATION_KIND_DELTA = 2;
+}
+
+message StatePublicationV1 {
+  bytes publication_id = 1;
+  PublicationKindV1 kind = 2;
+  bytes state_continuity_token = 3;
+  optional bytes base_state_continuity_token = 4;
+  uint32 chunk_count = 5;
+  bytes projection_schema_digest = 6;
+}
+
+message StatePublicationChunkV1 {
+  bytes publication_id = 1;
+  uint32 chunk_index = 2;
+  uint32 chunk_count = 3;
+  bytes uncompressed_payload_digest = 4;
+  CompressionKindV1 compression = 5;
+  bytes payload = 6;
+}
+
+message OperationSchedulingAdmissionWireV1 {
+  uint64 admission_basis_step = 1;
+  uint64 scheduling_policy_generation = 2;
+  optional uint64 requested_not_before_step = 3;
+  optional uint64 requested_deadline_step = 4;
+}
+
+message CandidateSchedulingWireV1 {
+  uint64 candidate_step = 1;
+}
+
+message StandardOperationV1 {
+  bytes operation_id = 1;
+  bytes immutable_payload_digest = 2;
+  string operation_kind = 3;
+  OperationSchedulingAdmissionWireV1 admission = 4;
+  optional CandidateSchedulingWireV1 candidate = 5;
+  string operation_payload_schema_id = 6;
+  SchemaVersionWireV1 operation_payload_schema_version = 7;
+  bytes operation_payload = 8;
+}
+
+message OperationBatchV1 {
+  bytes batch_id = 1;
+  bytes batch_digest = 2;
+  string batch_kind = 3;
+  repeated StandardOperationV1 operations = 4;
+}
+
+enum OperationLifecycleWireStateV1 {
+  OPERATION_LIFECYCLE_UNSPECIFIED = 0;
+  OPERATION_LIFECYCLE_UNKNOWN = 1;
+  OPERATION_LIFECYCLE_ACCEPTED = 2;
+  OPERATION_LIFECYCLE_SCHEDULED = 3;
+  OPERATION_LIFECYCLE_TERMINAL = 4;
+}
+
+message OperationStatusQueryV1 {
+  bytes operation_id = 1;
+}
+
+message OperationStatusResultV1 {
+  bytes operation_id = 1;
+  OperationLifecycleWireStateV1 state = 2;
+  optional bytes operation_payload_digest = 3;
+  optional uint64 effective_step = 4;
+  optional ResultV1 terminal_result = 5;
+  bool rich_result_details_available = 6;
+}
+
+enum ResyncPreferenceV1 {
+  RESYNC_PREFERENCE_UNSPECIFIED = 0;
+  RESYNC_PREFERENCE_CONTINUE_IF_POSSIBLE = 1;
+  RESYNC_PREFERENCE_FORCE_FULL = 2;
+}
+
+message StateResyncRequestV1 {
+  bytes world_id = 1;
+  optional uint64 client_basis_step = 2;
+  optional bytes client_continuity_token = 3;
+  ResyncPreferenceV1 preference = 4;
+}
