@@ -72,6 +72,44 @@ def verify_mv_dcbor() -> None:
         assert domain_hash(vector["label"], value).hex() == vector["digest_hex"], vector["name"]
 
 
+def verify_identity_derivation() -> None:
+    data = load("identity-derivation.json")
+
+    for vector in data["entity_id"]:
+        context = vector["context"]
+        value = {
+            0: bytes.fromhex(context["world_id_hex"]),
+            1: context["creation_step"],
+            2: context["creator_domain"],
+            3: bytes.fromhex(context["creator_entity_id_hex"]),
+            4: context["creation_kind"],
+            5: context["local_ordinal"],
+            6: context["nonce"]
+        }
+        encoded = encode(value)
+        digest = domain_hash(vector["label"], value)
+        assert encoded.hex() == vector["encoded_hex"], vector["name"]
+        assert digest.hex() == vector["domain_hash_hex"], vector["name"]
+        assert digest[:16].hex() == vector["id128_hex"], vector["name"]
+
+    for vector in data["intent_id"]:
+        context = vector["context"]
+        value = {
+            0: bytes.fromhex(context["world_id_hex"]),
+            1: context["effective_step"],
+            2: context["source_kind"],
+            3: bytes.fromhex(context["source_id_hex"]),
+            4: context["domain"],
+            5: context["mutation_kind"],
+            6: context["local_ordinal"]
+        }
+        encoded = encode(value)
+        digest = domain_hash(vector["label"], value)
+        assert encoded.hex() == vector["encoded_hex"], vector["name"]
+        assert digest.hex() == vector["domain_hash_hex"], vector["name"]
+        assert digest[:16].hex() == vector["id128_hex"], vector["name"]
+
+
 def main() -> None:
     manifest = load("manifest.json")
     assert manifest["fixture_format"] == "machiverse-contract-fixtures"
@@ -80,6 +118,7 @@ def main() -> None:
     verify_fixed_width()
     verify_sha256()
     verify_mv_dcbor()
+    verify_identity_derivation()
     print("contract fixtures v1: PASS")
 
 
