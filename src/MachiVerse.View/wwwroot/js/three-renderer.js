@@ -9,6 +9,7 @@ let resizeObserver = null;
 let contextLostHandler = null;
 let currentProjection = null;
 let currentOptions = null;
+let rendererState = "uninitialized";
 
 function requireCanvas(canvasId) {
     const element = document.getElementById(canvasId);
@@ -26,6 +27,28 @@ function isUint64Decimal(value) {
     } catch {
         return false;
     }
+}
+
+function isFiniteVector(value, positive = false) {
+    if (!value || !Number.isFinite(value.x) || !Number.isFinite(value.y) || !Number.isFinite(value.z)) return false;
+    return !positive || (value.x > 0 && value.y > 0 && value.z > 0);
+}
+
+function isKnownPrimitiveKind(value) {
+    return value === "terrain" || value === "built" || value === "presence";
+}
+
+function isKnownMaterialProfile(value) {
+    return value === "terrain" || value === "built" || value === "presence";
+}
+
+function validatePrimitive(primitive) {
+    if (!primitive || typeof primitive.primitiveId !== "string" || primitive.primitiveId.length === 0) return false;
+    if (!isKnownPrimitiveKind(primitive.kind) || !isKnownMaterialProfile(primitive.materialProfile)) return false;
+    if (!isFiniteVector(primitive.position) || !isFiniteVector(primitive.scale, true)) return false;
+    if (!Number.isFinite(primitive.lodMinDistance) || primitive.lodMinDistance < 0) return false;
+    if (!Number.isFinite(primitive.lodMaxDistance) || primitive.lodMaxDistance <= primitive.lodMinDistance) return false;
+    return true;
 }
 
 function resizeRenderer() {
@@ -50,8 +73,81 @@ function status() {
         backendMode: currentOptions?.backendMode ?? "uninitialized",
         threeRevision: THREE.REVISION,
         basisStep: currentProjection?.basisStep ?? null,
-        projectionRecordCount: currentProjection?.records?.length ?? 0
+        projectionRecordCount: currentProjection?.records?.length ?? 0,
+        sceneObjectCount: projectionRoot?.children?.length ?? 0,
+        rendererState
     };
+}
+
+function createPresentationMaterial(profile) {
+    // WebGPURenderer standard materials are node-material based. Custom material work in
+    // VIEW-03 starts from MeshStandardNodeMaterial rather than raw GLSL/WebGLRenderer paths.
+    const color = profile === "terrain"
+        ? 0x6f8062
+        : profile === "built"
+            ? 0x9aa2ad
+            : 0x66b5ff;
+    return new THREE.MeshStandardNodeMaterial({ color });
+}
+
+function createPresentationObject(primitive) {
+    let geometry;
+    if (primitive.kind === "presence") {
+        geometry = new THREE.SphereGeometry(0.5, 16, 8);
+    } else {
+        // Terrain and built projections both start from full-3D volume primitives. Canonical
+        // schema adapters may replace these fixture-level geometries with mesh/asset projections
+        // without changing the renderer contract.
+        geometry = new THREE.BoxGeometry(1, 1, 1);
+    }
+
+    const material = createPresentationMaterial(primitive.materialProfile);
+    const object = new THREE.Mesh(geometry, material);
+    object.name = primitive.primitiveId;
+    object.position.set(primitive.position.x, primitive.position.y, primitive.position.z);
+    object.scale.set(primitive.scale.x, primitive.scale.y, primitive.scale.z);
+    object.frustumCulled = true;
+    object.userData.primitiveKind = primitive.kind;
+    object.userData.lodMinDistance = primitive.lodMinDistance;
+    object.userData.lodMaxDistance = primitive.lodMaxDistance;
+    object.userData.presentationOnly = true;
+    return object;
+}
+
+function disposeProjectionObjects() {
+    if (!projectionRoot) return;
+    projectionRoot.traverse(object => {
+        if (object === projectionRoot) return;
+        object.geometry?.dispose?.();
+        if (Array.isArray(object.material)) object.material.forEach(material => material.dispose?.());
+        else object.material?.dispose?.();
+    });
+    projectionRoot.clear();
+}
+
+function updatePresentationLod() {
+    if (!projectionRoot || !camera) return;
+    for (const object of projectionRoot.children) {
+        const distance = camera.position.distanceTo(object.position);
+        object.visible = distance >= object.userData.lodMinDistance && distance < object.userData.lodMaxDistance;
+    }
+}
+
+function enterDegradedRendering(reason) {
+    rendererState = `degraded:${reason}`;
+    if (canvas) canvas.dataset.rendererState = rendererState;
+    renderer?.setAnimationLoop(null);
+}
+
+function observeWebGpuDeviceLoss(activeRenderer) {
+    const deviceLost = activeRenderer?.backend?.device?.lost;
+    if (!deviceLost || typeof deviceLost.then !== "function") return;
+
+    deviceLost.then(() => {
+        if (renderer === activeRenderer) enterDegradedRendering("webgpu-device-lost");
+    }).catch(() => {
+        if (renderer === activeRenderer) enterDegradedRendering("webgpu-device-lost");
+    });
 }
 
 export async function initializeRendererBoundary(canvasId, maxPixelRatio, forceWebGl = false) {
@@ -86,7 +182,9 @@ export async function initializeRendererBoundary(canvasId, maxPixelRatio, forceW
         antialias: true,
         forceWebGL: forceWebGl
     });
+    const activeRenderer = renderer;
     await renderer.init();
+    observeWebGpuDeviceLoss(activeRenderer);
 
     resizeObserver = new ResizeObserver(resizeRenderer);
     resizeObserver.observe(canvas);
@@ -95,17 +193,19 @@ export async function initializeRendererBoundary(canvasId, maxPixelRatio, forceW
 
     contextLostHandler = event => {
         event.preventDefault();
-        canvas.dataset.rendererState = "lost";
-        renderer?.setAnimationLoop(null);
+        enterDegradedRendering("webgl-context-lost");
     };
     canvas.addEventListener("webglcontextlost", contextLostHandler, false);
 
+    rendererState = "ready";
     renderer.setAnimationLoop(() => {
-        if (renderer && scene && camera) renderer.render(scene, camera);
+        if (!renderer || !scene || !camera || rendererState !== "ready") return;
+        updatePresentationLod();
+        renderer.render(scene, camera);
     });
 
     canvas.dataset.rendererBoundary = "ready";
-    canvas.dataset.rendererState = "ready";
+    canvas.dataset.rendererState = rendererState;
     canvas.dataset.rendererBackend = currentOptions.backendMode;
     canvas.dataset.threeRevision = THREE.REVISION;
     return status();
@@ -118,16 +218,30 @@ export function applySceneProjection(projection) {
     if (!projection || !isUint64Decimal(projection.basisStep)) {
         throw new Error("Invalid SceneProjectionModel basis step.");
     }
-    if (!Array.isArray(projection.records)) {
-        throw new Error("Invalid SceneProjectionModel records.");
+    if (!Array.isArray(projection.records) || !Array.isArray(projection.primitives)) {
+        throw new Error("Invalid SceneProjectionModel collection fields.");
     }
     if (projection.records.some(record => !isUint64Decimal(record.recordRevision))) {
         throw new Error("Invalid SceneProjectionModel record revision.");
     }
+    if (projection.primitives.some(primitive => !validatePrimitive(primitive))) {
+        throw new Error("Invalid SceneProjectionModel primitive.");
+    }
 
-    // VIEW-03 keeps protocol/domain payload interpretation out of Three.js itself.
-    // Concrete projection-schema adapters will populate projectionRoot; until then
-    // only confirmed projection identity/revision metadata crosses this boundary.
+    const primitiveIds = new Set();
+    for (const primitive of projection.primitives) {
+        if (primitiveIds.has(primitive.primitiveId)) {
+            throw new Error(`Duplicate SceneProjection primitive: ${primitive.primitiveId}`);
+        }
+        primitiveIds.add(primitive.primitiveId);
+    }
+
+    disposeProjectionObjects();
+    for (const primitive of projection.primitives) {
+        projectionRoot.add(createPresentationObject(primitive));
+    }
+
+    // Confirmed identity/revision metadata remains separate from Three.js presentation objects.
     currentProjection = projection;
     projectionRoot.userData.basisStep = projection.basisStep;
     projectionRoot.userData.continuityTokenHex = projection.continuityTokenHex;
@@ -140,6 +254,23 @@ export function applySceneProjection(projection) {
 
     canvas.dataset.confirmedBasisStep = projection.basisStep;
     canvas.dataset.projectionRecordCount = String(projection.records.length);
+    canvas.dataset.sceneObjectCount = String(projection.primitives.length);
+}
+
+export function clearSceneProjection() {
+    disposeProjectionObjects();
+    currentProjection = null;
+    if (projectionRoot) projectionRoot.userData = {};
+    if (canvas) {
+        delete canvas.dataset.confirmedBasisStep;
+        delete canvas.dataset.projectionRecordCount;
+        delete canvas.dataset.sceneObjectCount;
+    }
+}
+
+export function simulateRendererLossForTest(reason = "test-loss") {
+    enterDegradedRendering(reason);
+    return status();
 }
 
 export async function reinitializeRendererBoundary(canvasId, maxPixelRatio, forceWebGl = false) {
@@ -162,14 +293,7 @@ export async function disposeRendererBoundary() {
     }
     contextLostHandler = null;
 
-    if (projectionRoot) {
-        projectionRoot.traverse(object => {
-            object.geometry?.dispose?.();
-            if (Array.isArray(object.material)) object.material.forEach(material => material.dispose?.());
-            else object.material?.dispose?.();
-        });
-    }
-
+    clearSceneProjection();
     renderer?.dispose();
     renderer = null;
     scene = null;
@@ -177,8 +301,9 @@ export async function disposeRendererBoundary() {
     projectionRoot = null;
     currentProjection = null;
     currentOptions = null;
+    rendererState = "disposed";
     if (canvas) {
-        canvas.dataset.rendererState = "disposed";
+        canvas.dataset.rendererState = rendererState;
         delete canvas.dataset.rendererBackend;
     }
     canvas = null;
