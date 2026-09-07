@@ -247,6 +247,7 @@ try
     Require((await store.ReadHistoryAnchorAsync()).Sequence == 2, "Rejected acceptance must not advance history anchor.");
 
     await Sim03DurabilitySmoke.RunAsync(store, worldId, operationId, initial.Digest);
+    await Sim03SnapshotCommitSmoke.RunAsync(store, paths, worldId);
 }
 finally
 {
