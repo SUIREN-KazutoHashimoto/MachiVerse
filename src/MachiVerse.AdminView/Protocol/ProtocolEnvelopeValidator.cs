@@ -110,7 +110,7 @@ public sealed class ProtocolEnvelopeValidator
         }
     }
 
-    private static void ValidateStableToken(string token, string fieldName)
+    public static void ValidateStableToken(string token, string fieldName)
     {
         if (string.IsNullOrEmpty(token) || !StableToken.IsMatch(token))
         {
