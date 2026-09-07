@@ -11,11 +11,11 @@
     "domain-hash-basic",
     "entity-id-derivation",
     "intent-id-derivation",
-    "random-word64-basic"
+    "random-word64-basic",
+    "same-step-order"
   ],
   "pending_sets": [
     "mv-dcbor-full-type-matrix",
-    "order-vectors",
     "protobuf",
     "config",
     "persistence"
