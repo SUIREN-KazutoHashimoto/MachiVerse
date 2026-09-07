@@ -4,68 +4,199 @@
 
 第245〜249問はすべてCを採用する。Capability Negotiationでは通常機能だけでなく、接続安全性・互換性の判断に必要なアドオンのメタ情報も交換対象とする。
 
-Q255により、**標準プロトコル上のアドオン情報はメタ情報に限定し、アドオン固有機能データ・追加操作・任意拡張ペイロードを標準プロトコルへ載せない**ことを明確化する。
+Q255により、**標準プロトコル上のアドオン情報はメタ情報に限定し、アドオン固有機能データ・追加操作・任意拡張ペイロードを標準プロトコルへ載せない**。
 
-### Major / Minor互換性
+Phase 1 P1-04 で共通 envelope / handshake の具体契約を確定した。詳細の正本は `docs/design/phase1-protocol-envelope.md` とする。
 
-- プロトコルはMajor.Minorで管理する。
-- Major不一致は互換不可として接続を拒否する。
-- 同一Major内では新しいMinorが後方互換性を維持する。
-- Minor差がある接続では、単なるバージョン番号だけでなく双方の対応Capabilityを交換し、必要機能が利用可能かを判断する。
+## Major / Minor互換性
 
-### Capability Negotiation
+Protocol versionは次で表現する。
 
-- 接続時に対応Capabilityを相互に交換する。
-- Capabilityは必須と任意を区別する。
-- 必須Capabilityが不足する場合は、接続全体または対象機能を明示的に拒否する。
-- Capability情報には、当該接続・コンポーネントで有効なアドオンについて、接続安全性・互換性判定に必要な情報を含められる。
-- 標準プロトコルで扱ってよいアドオン情報は、インストール状況、識別情報、バージョン、必要／提供Capability、互換性判断に必要な依存情報等の**メタ情報**に限定する。
-- これらのメタ情報は、相手との接続・機能利用が安全に成立するかを判断するために使用する。
-- **アドオン固有の世界データ、追加コマンド、追加機能ペイロード、汎用拡張データ領域を標準プロトコルへ流し込まない。**
-- アドオン固有機能をコンポーネント間で通信する必要がある場合は、プロトコル拡張用の前提フレームワークアドオン等と、その上で成立する追加プロトコルを利用する方向とする。
-- 前提フレームワークアドオン、追加プロトコルの具体的API、transport、接続方法、識別方式は現時点では固定しない。
-- 具体的なCapability識別子、アドオン識別子、バージョン表現、依存関係表現、ネゴシエーションメッセージ形式は現時点では固定しない。
+```text
+ProtocolVersion {
+  major: uint16,
+  minor: uint16
+}
+```
 
-### アドオン不整合時の扱い
+- backward-incompatible semantic changeはMajorを更新する。
+- same Major内のbackward-compatible changeはMinorを更新する。
+- handshakeでは双方のsupported version rangeから共通Majorの最大値を選び、そのMajorの共通Minor範囲で最大Minorをnegotiated versionとする。
+- 共通versionが存在しない場合はconnectionを拒否する。
+- normal messageは実装最新版ではなくnegotiated versionを明示する。
 
-- 必要Capability、必要アドオン、必要バージョン等が不足または非互換である場合、安全でない機能を黙って有効化しない。
-- Q257に従い、起動時のアドオン構成・依存・Capability・Configに不整合がある場合は、重大度に関係なく対象コンポーネントを起動しない。
-- Q267に従い、保存世界が依存するアドオン条件に不整合がある場合は、明示的なmigrationが完全に成功して整合性を確認できない限り世界を起動しない。
+Minor updateではexisting required fieldを削除せず、existing fieldのtype / unit / semantic meaningを互換不能に変更しない。
 
-### 新Minorから旧Minorへの送信
+New fieldはabsent時に旧Minorと同じ意味になるoptional fieldとし、新message type / featureはnegotiated MinorまたはCapabilityで送信可否を制御する。
 
-- 新しいMinor側は、相手が理解できない新規項目や機能を無条件に送信しない。
-- 相手のCapabilityに応じて送信内容を決定する。
-- 未知項目を安全に無視できる場合と、意味解釈が変化するため拒否すべき場合をプロトコル仕様で区別する。
-- 意味が変わる通信を黙って継続してはならない。
+## Capability Negotiation
 
-### Major不一致時の診断
+Capability identifierはStableTokenとする。
 
-- Major不一致時は接続を拒否する。
-- 拒否理由、双方のプロトコルバージョン、必要な更新方向を診断可能な形で返す。
-- General View、Admin Viewまたは運用画面で、利用者・運用者が接続不能理由を確認できるようにする。
+```text
+CapabilityId := StableToken
+```
 
-### 接続後のCapability変化
+incompatible semantic revisionは別tokenとし、例えば `state.delta.v1` のようにversionをtokenへ含める。
 
-- 基本的な再交渉は再接続時に行う。
-- ライブマイグレーション、Master Gateway切替、アドオン有効状態の変更等により接続中の有効Capabilityが変化し得る場合、安全な再交渉または接続再確立を行う。
-- Capability変化後に、以前の意味や前提のまま通信を黙って継続してはならない。
-- 再交渉中の処理停止範囲、タイムアウト、既存Operationの扱い等は今後決定する。
+双方はconnection handshakeで次を交換する。
+
+- provided Capability
+- required Capability
+- connection safety / compatibility判定に必要なaddon metadata
+
+判定規則:
+
+- A.requiredがB.providedのsubsetでなければreject。
+- B.requiredがA.providedのsubsetでなければreject。
+- effective optional Capability setは双方providedのintersection。
+- required Capability不足をsilent downgradeしない。
+- 特定featureのみ無効化可能な場合、相手が理解できないmessage type自体を送らない。
+
+## NegotiationGeneration
+
+connection上のnegotiated semanticsを識別するため `NegotiationGeneration := uint32` を持つ。
+
+- handshake前は0。
+- initial handshake成功後は1。
+- safe live renegotiation成功ごとに1増加する。
+- reconnectはnew connectionとして1から開始する。
+- stale NegotiationGeneration messageをcurrent semanticsとして解釈しない。
+- wrap-around前にconnectionを再確立する。
+
+NegotiationGenerationをworld orderingやbusiness priorityに使用しない。
+
+## 接続後のCapability変化
+
+Phase 1標準では、connection中にeffective Capability setの変更が必要になった場合は**reconnectして再negotiation**する。
+
+live renegotiationは次をすべて満たす場合のみ許可する。
+
+- 双方が `protocol.live-renegotiation.v1` を提供する。
+- protocol ownerが明示的なquiesce / barrierを定義する。
+- old/new NegotiationGenerationの境界が曖昧にならない。
+- barrier完了前にnew-only messageを送らない。
+- renegotiation timingがworld outcomeへ影響しない。
+
+## Addon compatibility metadata
+
+標準protocolで交換できるaddon情報はconnection safety / compatibility用metadataに限定する。
+
+Phase 1共通形は少なくとも次を表現可能にする。
+
+```text
+AddonVersionV1 {
+  major: uint32,
+  minor: uint32,
+  patch: uint32
+}
+
+AddonDependencyV1 {
+  addon_id: StableToken,
+  min_inclusive: AddonVersionV1 | NONE,
+  max_exclusive: AddonVersionV1 | NONE
+}
+
+AddonDescriptorV1 {
+  addon_id: StableToken,
+  version: AddonVersionV1,
+  enabled: bool,
+  provided_capabilities: [CapabilityId...],
+  required_capabilities: [CapabilityId...],
+  dependencies: [AddonDependencyV1...]
+}
+```
+
+標準protocolへ載せないもの:
+
+- addon固有world data
+- addon固有command
+- addon固有function payload
+- generic opaque extension bytes
+- addon都合で標準message semanticsを書き換える仕組み
+
+Addon固有functionをcomponent間通信する必要がある場合はadditional protocol / framework addon側の責務とする。
+
+## アドオン不整合時の扱い
+
+- required Capability、required addon、required version等が不足または非互換ならunsafe featureを黙って有効化しない。
+- Q257に従い、起動時のaddon構成・依存・Capability・Configに不整合がある場合は重大度に関係なく対象componentを起動しない。
+- Q267に従い、保存worldが依存するaddon条件に不整合がある場合は、明示的migrationが完全成功して整合性を確認できない限りworldを起動しない。
+
+## New MinorからOld Minorへの送信
+
+- senderはnegotiated Minorを超えるfield/messageを無条件送信しない。
+- 相手Capabilityに応じて送信内容を決定する。
+- receiverが未知semanticをsilent ignoreすることを前提にしない。
+- safe-to-ignoreかどうかはprotocol schema / negotiated versionで定義する。
+
+## incompatibility diagnostic
+
+handshake reject時は可能な範囲で次を構造化して返す。
+
+- stable error code
+- local supported versions
+- peer offered versions
+- missing Capability
+- incompatible addon
+- update direction
+- human-readable diagnostic message
+
+Version incompatibilityでは双方versionと必要なupdate directionを利用者・運用者が確認可能にする。
+
+Machine behaviorはdiagnostic textではなくstable codeで分岐する。
+
+## Common error code
+
+互換性関連では少なくとも次を共通codeとして使用できる。
+
+```text
+protocol.version-incompatible
+protocol.capability-missing
+protocol.negotiation-stale
+protocol.wrong-protocol
+protocol.unknown-message-type
+```
+
+individual protocolは自身のstable code namespaceを追加できる。
 
 ## コンポーネント独立性との関係
 
-- Capability Negotiationは各コンポーネントの独立更新を支える契約機構とする。
-- コンポーネント間で内部型や共有DTOライブラリを共有するための仕組みにはしない。
-- Capabilityとアドオンの互換性メタ情報は標準プロトコルを介して交換し、相手コンポーネントの内部実装へ依存しない。
-- アドオン固有機能の追加プロトコルも、標準コンポーネント間に直接コード依存を作るものにはしない。
+- Capability Negotiationは各componentの独立更新を支えるcontract mechanismとする。
+- component間でinternal typeやshared DTO libraryを共有する仕組みにはしない。
+- generated codeを利用してもprotocol documentを契約正本から外さない。
+- addon compatibility metadataはstandard protocolを介して交換し、相手componentのinternal implementationへ依存しない。
+
+## 独立test
+
+少なくとも次をcomponent単独のprotocol contract testで再現可能にする。
+
+- same Major / same Minor
+- same Major / different Minor
+- no common version reject
+- required Capability mismatch
+- addon dependency mismatch
+- stale NegotiationGeneration reject
+- reconnect後のrenegotiation
 
 ## 今後決定が必要な事項
 
-- Capability識別子の形式
-- 必須／任意Capabilityの宣言方法
-- アドオン識別子・バージョン・互換性メタ情報の形式
-- アドオン依存関係を標準プロトコルのメタ情報としてどこまで表現するか
-- 再交渉の開始条件と安全な適用境界
-- 再交渉中の既存Operation・Batch・セッションの扱い
-- Capability不一致時のエラーコード体系
-- アドオン前提フレームワークおよび追加プロトコルの具体仕様
+P1-04で次は確定済み。
+
+- ProtocolVersion concrete type
+- supported range selection algorithm
+- CapabilityId形式
+- required / provided判定
+- NegotiationGeneration
+- addon identity/version/dependency metadata
+- incompatibility common error code
+- reconnectを基本とするCapability change rule
+
+個別protocolまたは後続設計へ残す事項:
+
+- physical transport / connection establishment
+- serialization / compression
+- protocol-specific Hello payload追加項目
+- live renegotiation barrierの具体algorithm（採用するprotocolのみ）
+- auth credential / mutual authenticationとの結合
+- additional addon protocol frameworkの具体仕様
