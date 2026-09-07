@@ -1,0 +1,15 @@
+{
+  "random_word64": [
+    {
+      "name": "basic-addressable-word",
+      "label": "mv.random.v1",
+      "world_seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "context": {"0": "test"},
+      "draw_index": 5,
+      "retry_index": 0,
+      "encoded_outer_hex": "a4005820000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f01a100647465737402050300",
+      "domain_hash_hex": "4b0f485b05e4f5b5c053b6892b1f2dba5756381a755ff390a074d9f5e406b5a0",
+      "word64": 5408621233273370037
+    }
+  ]
+}
