@@ -7,7 +7,8 @@
     "determinism.hash.sha256.empty",
     "determinism.hash.sha256.abc",
     "determinism.dcbor.vector",
-    "determinism.domain-hash.vector"
+    "determinism.domain-hash.vector",
+    "determinism.entity-id.vector"
   ],
   "status": {
     "schema.stable-token.valid": "implemented",
@@ -15,7 +16,8 @@
     "schema.protobuf.protocol-version-v1": "implemented",
     "determinism.hash.sha256.empty": "implemented",
     "determinism.hash.sha256.abc": "implemented",
-    "determinism.dcbor.vector": "reserved-for-sim-01-generator",
-    "determinism.domain-hash.vector": "reserved-for-sim-01-generator"
+    "determinism.dcbor.vector": "implemented",
+    "determinism.domain-hash.vector": "implemented",
+    "determinism.entity-id.vector": "implemented"
   }
 }
