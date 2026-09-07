@@ -18,6 +18,16 @@ function requireCanvas(canvasId) {
     return element;
 }
 
+function isUint64Decimal(value) {
+    if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) return false;
+    try {
+        const parsed = BigInt(value);
+        return parsed >= 0n && parsed <= 18446744073709551615n;
+    } catch {
+        return false;
+    }
+}
+
 function resizeRenderer() {
     if (!renderer || !camera || !canvas) return;
     const width = Math.max(1, canvas.clientWidth || canvas.parentElement?.clientWidth || 1);
@@ -105,11 +115,14 @@ export function applySceneProjection(projection) {
     if (!renderer || !projectionRoot || !canvas) {
         throw new Error("Renderer has not been initialized.");
     }
-    if (!projection || !Number.isInteger(projection.basisStep) || projection.basisStep < 0) {
+    if (!projection || !isUint64Decimal(projection.basisStep)) {
         throw new Error("Invalid SceneProjectionModel basis step.");
     }
     if (!Array.isArray(projection.records)) {
         throw new Error("Invalid SceneProjectionModel records.");
+    }
+    if (projection.records.some(record => !isUint64Decimal(record.recordRevision))) {
+        throw new Error("Invalid SceneProjectionModel record revision.");
     }
 
     // VIEW-03 keeps protocol/domain payload interpretation out of Three.js itself.
@@ -125,7 +138,7 @@ export function applySceneProjection(projection) {
         recordRevision: record.recordRevision
     }));
 
-    canvas.dataset.confirmedBasisStep = String(projection.basisStep);
+    canvas.dataset.confirmedBasisStep = projection.basisStep;
     canvas.dataset.projectionRecordCount = String(projection.records.length);
 }
 
