@@ -8,6 +8,8 @@ public sealed class MonitoringProjectionStore : IMonitoringModuleBoundary
     private readonly Dictionary<string, ComponentHealthProjection> _health = new(StringComparer.Ordinal);
     private IReadOnlyList<LogRecordProjection> _logs = Array.Empty<LogRecordProjection>();
     private IReadOnlyList<AuditRecordProjection> _audit = Array.Empty<AuditRecordProjection>();
+    private EnvelopeTraceProjection? _logPageTrace;
+    private EnvelopeTraceProjection? _auditPageTrace;
     private MonitoringChannelState _healthChannel = new(MonitoringAccessState.Available);
     private MonitoringChannelState _logChannel = new(MonitoringAccessState.Available);
     private MonitoringChannelState _auditChannel = new(MonitoringAccessState.Available);
@@ -19,6 +21,8 @@ public sealed class MonitoringProjectionStore : IMonitoringModuleBoundary
         Health: _health.Values.OrderBy(static x => x.Target.StableKey, StringComparer.Ordinal).ToArray(),
         Logs: _logs,
         Audit: _audit,
+        LogPageTrace: _logPageTrace,
+        AuditPageTrace: _auditPageTrace,
         HealthChannel: _healthChannel,
         LogChannel: _logChannel,
         AuditChannel: _auditChannel);
@@ -35,11 +39,11 @@ public sealed class MonitoringProjectionStore : IMonitoringModuleBoundary
                 return true;
             case "component.log.page":
                 RequireSchema(envelope, "protocol.log-page.v1");
-                ApplyLogPage(LogPageV1.Parser.ParseFrom(envelope.Payload));
+                ApplyLogPage(LogPageV1.Parser.ParseFrom(envelope.Payload), ProjectTrace(envelope));
                 return true;
             case "audit.page":
                 RequireSchema(envelope, "protocol.audit-page.v1");
-                ApplyAuditPage(AuditPageV1.Parser.ParseFrom(envelope.Payload));
+                ApplyAuditPage(AuditPageV1.Parser.ParseFrom(envelope.Payload), ProjectTrace(envelope));
                 return true;
             default:
                 return false;
@@ -83,16 +87,18 @@ public sealed class MonitoringProjectionStore : IMonitoringModuleBoundary
         Changed?.Invoke();
     }
 
-    private void ApplyLogPage(LogPageV1 page)
+    private void ApplyLogPage(LogPageV1 page, EnvelopeTraceProjection trace)
     {
         _logs = page.Records.Select(ProjectLog).ToArray();
+        _logPageTrace = trace;
         _logChannel = new MonitoringChannelState(MonitoringAccessState.Available);
         Changed?.Invoke();
     }
 
-    private void ApplyAuditPage(AuditPageV1 page)
+    private void ApplyAuditPage(AuditPageV1 page, EnvelopeTraceProjection trace)
     {
         _audit = page.Records.Select(ProjectAudit).ToArray();
+        _auditPageTrace = trace;
         _auditChannel = new MonitoringChannelState(MonitoringAccessState.Available);
         Changed?.Invoke();
     }
@@ -152,6 +158,12 @@ public sealed class MonitoringProjectionStore : IMonitoringModuleBoundary
             record.TargetKind,
             record.ResultCode,
             record.Attributes.Select(static attribute => new KeyValueProjection(attribute.Key, attribute.Value)).ToArray());
+
+    private static EnvelopeTraceProjection ProjectTrace(WireEnvelopeV1 envelope)
+        => new(
+            envelope.MessageId.Length == 16 ? Hex(envelope.MessageId) : null,
+            envelope.CorrelationId.Length == 16 ? Hex(envelope.CorrelationId) : null,
+            envelope.HasCausationId && envelope.CausationId.Length == 16 ? Hex(envelope.CausationId) : null);
 
     private static void RequireSchema(WireEnvelopeV1 envelope, string expected)
     {
