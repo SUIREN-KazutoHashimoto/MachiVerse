@@ -1,0 +1,53 @@
+{
+  "same_step_order": {
+    "items": [
+      {
+        "name": "scheduled-low-priority",
+        "phase": 2,
+        "domain_rank": 30,
+        "conflict_scope_digest_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "semantic_priority": -100,
+        "intent_id_hex": "ffffffffffffffffffffffffffffffff"
+      },
+      {
+        "name": "external-domain20",
+        "phase": 1,
+        "domain_rank": 20,
+        "conflict_scope_digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "semantic_priority": 0,
+        "intent_id_hex": "ffffffffffffffffffffffffffffffff"
+      },
+      {
+        "name": "external-domain10-priority1",
+        "phase": 1,
+        "domain_rank": 10,
+        "conflict_scope_digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "semantic_priority": 1,
+        "intent_id_hex": "00000000000000000000000000000002"
+      },
+      {
+        "name": "external-domain10-priority0-intent2",
+        "phase": 1,
+        "domain_rank": 10,
+        "conflict_scope_digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "semantic_priority": 0,
+        "intent_id_hex": "00000000000000000000000000000002"
+      },
+      {
+        "name": "external-domain10-priority0-intent1",
+        "phase": 1,
+        "domain_rank": 10,
+        "conflict_scope_digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "semantic_priority": 0,
+        "intent_id_hex": "00000000000000000000000000000001"
+      }
+    ],
+    "expected_order": [
+      "external-domain10-priority0-intent1",
+      "external-domain10-priority0-intent2",
+      "external-domain10-priority1",
+      "external-domain20",
+      "scheduled-low-priority"
+    ]
+  }
+}
