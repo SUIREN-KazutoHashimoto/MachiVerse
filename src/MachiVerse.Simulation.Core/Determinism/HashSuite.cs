@@ -9,9 +9,12 @@ public static class HashSuite
 
     public static byte[] DomainHash(string label, Action<MvDcborWriter> writeValue)
     {
-        var labelBytes = Encoding.ASCII.GetBytes(label);
-        if (labelBytes.Length != label.Length) throw new ArgumentException("Domain label must be ASCII.", nameof(label));
+        ArgumentNullException.ThrowIfNull(label);
+        ArgumentNullException.ThrowIfNull(writeValue);
+        if (label.Any(static c => c > 0x7f))
+            throw new ArgumentException("Domain label must be ASCII.", nameof(label));
 
+        var labelBytes = Encoding.ASCII.GetBytes(label);
         var writer = new MvDcborWriter();
         writeValue(writer);
         var valueBytes = writer.ToArray();
