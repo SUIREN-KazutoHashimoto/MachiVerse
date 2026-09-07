@@ -492,17 +492,15 @@ public sealed class ManagementProjectionStore : IManagementModuleBoundary
 
     private static string ValidateConfigKey(string key)
     {
-        if (string.IsNullOrEmpty(key) || key.Length > 256)
+        if (string.IsNullOrEmpty(key))
         {
-            throw new InvalidDataException("Config key must be non-empty and at most 256 ASCII characters.");
+            throw new InvalidDataException("Config key must be non-empty.");
         }
         foreach (var ch in key)
         {
-            if (!(ch is >= 'a' and <= 'z'
-                || ch is >= '0' and <= '9'
-                || ch is '.' or '_' or '-'))
+            if (ch > 0x7f || char.IsControl(ch))
             {
-                throw new InvalidDataException($"Config key '{key}' is not canonical ASCII field-path syntax.");
+                throw new InvalidDataException($"Config key '{key}' must use canonical ASCII field-path text.");
             }
         }
         return key;
