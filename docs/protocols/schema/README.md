@@ -4,7 +4,7 @@ Status: Canonical wire declaration / Standard Protocol v1
 
 ## 1. Scope
 
-このdirectoryの`.proto`はMachiVerse Standard Protocol v1のversion-controlled wire contractである。
+このdirectoryの`.proto`はMachiVerse Standard Protocol v1のversion-controlled wire contractです。
 
 ```text
 common.proto   common envelope / handshake / result / publication / operation
@@ -14,33 +14,33 @@ auth.proto     browser auth/session/login proxy payload
 payloads.proto Gateway/View/Admin standard payload
 ```
 
-MessageTypeとpayload typeのexact mappingは `message-registry-v1.md` を参照する。
+MessageTypeとpayload typeのexact mappingは `message-registry-v1.md` を参照します。
 
 ## 2. Source-of-truth boundary
 
 `.proto` が正本:
 
-- protobuf package/import。
-- message/enum/service symbol。
-- field number。
-- protobuf wire type。
-- enum numeric value。
-- gRPC service signature。
+- protobuf package/import
+- message/enum/service symbol
+- field number
+- protobuf wire type
+- enum numeric value
+- gRPC service signature
 
-Phase 4 design文書が正本:
+Architecture/Protocol/design文書が正本:
 
-- StableToken lexical constraint。
-- Id128/Hash256 length/non-zero rule。
-- field requirednessのsemantic rule。
-- WorldContext/OperationContext requiredness。
-- ordering/canonicalization。
-- Capability/version negotiation。
-- authn/authz。
-- retry/dedup/custody/durability。
-- deterministic digest semantics。
-- security limit。
+- StableToken lexical constraint
+- Id128/Hash256 length/non-zero rule
+- field requirednessのsemantic rule
+- WorldContext/OperationContext requiredness
+- ordering/canonicalization
+- Capability/version negotiation
+- authn/authz
+- retry/dedup/custody/durability
+- deterministic digest semantics
+- security limit
 
-protobuf自体にrequired fieldを持たせずproto3 presenceとapplication validationを併用する。
+protobuf自体にrequired fieldを持たせずproto3 presenceとapplication validationを併用します。
 
 ## 3. Files
 
@@ -61,7 +61,7 @@ protobuf自体にrequired fieldを持たせずproto3 presenceとapplication vali
 - session attach/state/query/revoke
 - verified identity assertion
 
-Internal component credential/private keyはprotobufへ載せない。Core/Gateway production authenticationはmutual TLSを使用する。
+Internal component credential/private keyはprotobufへ載せません。Core/Gateway production authenticationはmutual TLSを使用します。
 
 ### `payloads.proto`
 
@@ -75,12 +75,56 @@ Internal component credential/private keyはprotobufへ載せない。Core/Gatew
 - Config read/change
 - operational command
 - audit query/page
+- Administration View high-impact action prepare/plan/confirm/commit/result
+- Addon inventory/catalog/action management metadata
 
-## 4. Enum naming
+Addon package bytesやAddon-specific functional payloadはStandard Protocol payloadとして定義しません。
 
-Markdown設計では読みやすさのため `READY`, `FULL`, `REJECTED` 等のsemantic short nameを記載する場合がある。
+## 4. Administration View Phase 0 additions
 
-Code generation上のcanonical enum symbolは`.proto`に記載したprefix付きidentifierである。
+Issue #38でStandard Protocol v1へ次をcanonical化しました。
+
+### Observability / Config / Audit additive fields
+
+- log severity/MasterGeneration filter
+- structured log MasterGeneration context
+- Config redaction/validation metadata
+- audit session/correlation/plan/effective boundary/resulting generation context
+
+既存field number/meaningを変更せずadditive fieldとして追加しています。
+
+### High-impact action
+
+```text
+AdminActionPrepareV1
+AdminActionPlanV1
+AdminActionConfirmV1
+AdminActionConfirmationV1
+AdminActionCommitV1
+AdminActionResultV1
+```
+
+Plan/confirmation artifactはOperationIdとは別identityです。requiredness、expiry、single-use、digest coverageは `../gateway-admin-view-phase0.md` を正本とします。
+
+### Addon management
+
+```text
+AddonInventoryQueryV1
+AddonInventoryItemV1
+AddonInventoryResultV1
+AddonCatalogQueryV1
+AddonCatalogItemV1
+AddonCatalogPageV1
+AddonActionIntentV1
+```
+
+これらはmanagement/safety metadataのみを扱います。
+
+## 5. Enum naming
+
+Markdown設計では読みやすさのため `READY`, `FULL`, `REJECTED` 等のsemantic short nameを記載する場合があります。
+
+Code generation上のcanonical enum symbolは`.proto`に記載したprefix付きidentifierです。
 
 例:
 
@@ -89,23 +133,25 @@ semantic FULL  -> PUBLICATION_KIND_FULL
 semantic READY -> GATEWAY_READINESS_READY
 ```
 
-Numeric valueは`.proto`を正本とし、published valueを再利用・renumberしない。
+Numeric valueは`.proto`を正本とし、published valueを再利用・renumberしません。
 
-## 5. Numeric mapping
+## 6. Numeric mapping
 
-Browser側で`uint64`をECMAScript `Number`へlossy conversionしない。
+Browser側で`uint64`をECMAScript `Number`へlossy conversionしません。
 
 対象例:
 
-- SimulationStep。
-- MasterGeneration。
-- ConfigGeneration。
-- revision。
-- timestamp where exact integer representation is required by schema。
+- SimulationStep
+- MasterGeneration
+- ConfigGeneration
+- session generation
+- Addon inventory generation
+- revision
+- timestamp where exact integer representation is required by schema
 
-`BigInt`またはlossless uint64 wrapperを使用する。
+`BigInt`またはlossless uint64 wrapperを使用します。
 
-## 6. Binary scalar validation
+## 7. Binary scalar validation
 
 Application validation:
 
@@ -114,62 +160,68 @@ Id128   = exactly 16 bytes
 Hash256 = exactly 32 bytes
 ```
 
-ZERO Id128はschema/designがNONE sentinelを明示した場合以外invalid。
+ZERO Id128はschema/designがNONE sentinelを明示した場合以外invalidです。
 
-`bytes`型を使用していることは任意長を許可する意味ではない。
+Administration ViewではPlanId、ConfirmationId、confirmation challenge id、OperationId等のId128と、PlanDigest、ConfirmationDigest、artifact SHA-256等のHash256に同じbinary scalar ruleを適用します。
 
-## 7. Compatibility
+`bytes`型を使用していることは任意長を許可する意味ではありません。
+
+## 8. Compatibility
 
 Same protocol majorでcompatible updateする場合:
 
-- existing field numberを変更しない。
-- existing field meaning/typeを変更しない。
-- removed field number/nameはreserveする。
-- optional additive fieldを基本とする。
-- required semantic additionはCapabilityまたはprotocol major changeでguardする。
-- enum numeric valueを再利用しない。
+- existing field numberを変更しない
+- existing field meaning/typeを変更しない
+- removed field number/nameはreserveする
+- optional additive fieldを基本とする
+- required semantic additionはCapabilityまたはprotocol major changeでguardする
+- enum numeric valueを再利用しない
 
-Unknown optional fieldのprotobuf compatibilityだけを理由にrequired semanticをsilent degradeしない。
+Unknown optional fieldのprotobuf compatibilityだけを理由にrequired semanticをsilent degradeしません。
 
-## 8. Code generation
+Administration View high-impact/Add-on managementはfeature Capabilityでgateし、Capability不足時にolder direct actionへdowngradeしません。
 
-各componentはrepository内の同一schema sourceを入力としてlocal code generationする。
+## 9. Code generation
 
-Generated artifactは正本ではない。
+各componentはrepository内の同一schema sourceを入力としてlocal code generationします。
+
+Generated artifactは正本ではありません。
 
 推奨build gate:
 
-1. schema compile。
-2. descriptor digest生成。
-3. message registry completeness check。
-4. generated source drift check。
-5. contract fixture round-trip。
+1. schema compile
+2. descriptor digest生成
+3. message registry completeness check
+4. generated source drift check
+5. contract fixture round-trip
 
-Exact generator/package patch versionはcomponent tool lockで固定する。
+Exact generator/package patch versionはcomponent tool lockで固定します。
 
-## 9. Determinism boundary
+## 10. Determinism boundary
 
-protobuf wire encodingはtransport contractであり、MachiVerse authoritative deterministic digestのcanonical encodingではない。
+protobuf wire encodingはtransport contractであり、MachiVerse authoritative deterministic digestのcanonical encodingではありません。
 
-Operation immutable digest、state diagnostic digest、EntityId/TransactionId等のdeterministic hashはPhase 1/4のMV-DCBOR/domain-hash contractを使用する。
+Operation immutable digest、state diagnostic digest、EntityId/TransactionId等のdeterministic hashはPhase 1/4のMV-DCBOR/domain-hash contractを使用します。
 
-protobuf map/list iterationやunknown field preservation差異をworld outcomeへ使用しない。
+protobuf map/list iterationやunknown field preservation差異をworld outcomeへ使用しません。
 
-## 10. Security
+## 11. Security
 
-- auth secret/private keyをprotobuf payloadへ入れない。
-- browser SessionHandle cookie valueをpayloadへ入れない。
-- internal component authenticationはmTLSでprotocol HELLO前にpeer検証する。
-- MessageId/CorrelationId/ComponentInstanceIdをcredentialとして扱わない。
+- auth secret/private keyをprotobuf payloadへ入れない
+- browser SessionHandle cookie valueをpayloadへ入れない
+- internal component authenticationはmTLSでprotocol HELLO前にpeer検証する
+- MessageId/CorrelationId/ComponentInstanceIdをcredentialとして扱わない
+- Admin confirmation artifactをcredentialやOperationId代替として扱わない
+- Addon package bytesをgeneric Standard Protocol payloadとして扱わない
 
-## 11. Change procedure
+## 12. Change procedure
 
-Schema変更時は同一change setで少なくとも次を更新する。
+Schema変更時は同一change setで少なくとも次を更新します。
 
-- `.proto`。
-- `message-registry-v1.md`（mapping変更時）。
-- Phase 4 semantic design/amendment。
-- compatibility/version/Capability判断。
-- P4-08 contract fixture/acceptance。
+- `.proto`
+- `message-registry-v1.md`（mapping変更時）
+- semantic design/amendment
+- compatibility/version/Capability判断
+- contract fixture/acceptance
 
-Implementationだけでwire contractをsilent forkしない。
+Implementationだけでwire contractをsilent forkしません。
