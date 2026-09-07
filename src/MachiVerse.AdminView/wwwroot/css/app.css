@@ -1,0 +1,16 @@
+html, body { margin: 0; font-family: system-ui, sans-serif; background: #f5f6f8; color: #17191c; }
+button { padding: .55rem .9rem; border: 1px solid #777; border-radius: .35rem; background: white; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+.shell { min-height: 100vh; }
+.topbar { display: flex; justify-content: space-between; align-items: center; padding: .8rem 1.2rem; background: #15181d; color: white; }
+.domain-badge { font-size: .8rem; border: 1px solid #8c929c; border-radius: 999px; padding: .2rem .55rem; }
+.content { max-width: 1000px; margin: 0 auto; padding: 1.5rem; }
+.panel { background: white; border: 1px solid #d9dce1; border-radius: .5rem; padding: 1rem 1.2rem; margin: 1rem 0; }
+.grid { display: grid; grid-template-columns: minmax(12rem, 1fr) 2fr; gap: .4rem 1rem; }
+.grid dt { font-weight: 600; }
+.grid dd { margin: 0; overflow-wrap: anywhere; }
+.actions { display: flex; gap: .6rem; margin-top: 1rem; }
+.muted { color: #5e6570; }
+.error { color: #9b1c1c; }
+.warning { color: #7a4a00; }
+#blazor-error-ui { position: fixed; left: 0; right: 0; bottom: 0; padding: .8rem; background: #fff3cd; border-top: 1px solid #d8c26a; }

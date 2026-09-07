@@ -1,0 +1,101 @@
+@page "/"
+@implements IDisposable
+@inject AdminLifecycle Lifecycle
+
+<PageTitle>MachiVerse Administration View</PageTitle>
+
+<h1>Administration View</h1>
+<p class="muted">Gateway-only management boundary. General View roles are not reused.</p>
+
+<section class="panel">
+    <h2>Lifecycle</h2>
+    <dl class="grid">
+        <dt>Application</dt><dd>@Lifecycle.State</dd>
+        <dt>Gateway</dt><dd>@Lifecycle.Gateway.State</dd>
+        <dt>Protocol</dt><dd>@ProtocolSummary</dd>
+        <dt>Session</dt><dd>@SessionSummary</dd>
+    </dl>
+
+    <div class="actions">
+        <button @onclick="ConnectAsync" disabled="@(!Lifecycle.CanConnect)">Connect Gateway</button>
+        <button @onclick="DisconnectAsync" disabled="@(Lifecycle.Gateway.State == AdminGatewayConnectionState.Disconnected)">Disconnect</button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_lastError))
+    {
+        <p class="error">@_lastError</p>
+    }
+</section>
+
+<section class="panel">
+    <h2>Config 1.0</h2>
+    @if (Lifecycle.Config is null)
+    {
+        <p>Config is not loaded.</p>
+    }
+    else
+    {
+        <dl class="grid">
+            <dt>dashboard.refresh-ms</dt><dd>@Lifecycle.Config.DashboardRefreshMs</dd>
+            <dt>metrics.local-history-samples</dt><dd>@Lifecycle.Config.MetricsLocalHistorySamples</dd>
+            <dt>metrics.max-series</dt><dd>@Lifecycle.Config.MetricsMaxSeries</dd>
+            <dt>log.default-page-size</dt><dd>@Lifecycle.Config.LogDefaultPageSize</dd>
+            <dt>audit.default-page-size</dt><dd>@Lifecycle.Config.AuditDefaultPageSize</dd>
+            <dt>request.presentation-timeout-ms</dt><dd>@Lifecycle.Config.RequestPresentationTimeoutMs</dd>
+            <dt>confirmation.ux-timeout-seconds</dt><dd>@Lifecycle.Config.ConfirmationUxTimeoutSeconds</dd>
+        </dl>
+
+        @if (Lifecycle.DefaultedConfigKeys.Count > 0)
+        {
+            <p class="warning">Defaults were applied in memory for: @string.Join(", ", Lifecycle.DefaultedConfigKeys)</p>
+        }
+    }
+</section>
+
+@code {
+    private string? _lastError;
+
+    private string ProtocolSummary => Lifecycle.Gateway.NegotiatedVersion is null
+        ? "not negotiated"
+        : $"{Lifecycle.Gateway.NegotiatedVersion.Major}.{Lifecycle.Gateway.NegotiatedVersion.Minor} / generation {Lifecycle.Gateway.NegotiationGeneration}";
+
+    private string SessionSummary => Lifecycle.Session.HasSession
+        ? $"{Lifecycle.Session.Status} / generation {Lifecycle.Session.SessionGeneration}"
+        : "not attached";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Lifecycle.Changed += OnLifecycleChanged;
+        try
+        {
+            await Lifecycle.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+        }
+    }
+
+    private async Task ConnectAsync()
+    {
+        _lastError = null;
+        try
+        {
+            await Lifecycle.ConnectGatewayAsync();
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+        }
+    }
+
+    private async Task DisconnectAsync()
+    {
+        _lastError = null;
+        await Lifecycle.DisconnectGatewayAsync();
+    }
+
+    private void OnLifecycleChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Lifecycle.Changed -= OnLifecycleChanged;
+}
