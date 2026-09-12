@@ -1,19 +1,20 @@
-# Alpha 1.1 Society PropertyRight authority proposal
+# Alpha 1.1 Society PropertyRight benchmark authority
 
-Status: **Review only / approval pending**
+Status: **Approved normative authority for perf.reference.v1 Alpha 1.1**
 
 Tracking: #240
-Implementation after approval: #265
+Approval record: #240 comment 5649496851
+Implementation: #265
 
 ## Purpose
 
-This document proposes an exact benchmark-only authority for the remaining `society.property_right` 50,000-record slice.
+This document fixes the exact benchmark-only authority for the remaining `society.property_right` 50,000-record slice.
 
-The generic payload accepts an `asset_ref`, but the existing contracts do not say that any particular production partition is an economic property asset. Therefore the target choice below is an explicit semantic decision and must not be inferred merely from Ref/schema compatibility.
+The generic payload accepts an `asset_ref`, but the pre-existing contracts did not choose a particular production partition as an economic property asset. The project owner explicitly approved the target choice below on 2026-09-13. It is therefore normative for this benchmark and must not be generalized merely from Ref/schema compatibility.
 
 ## Existing authority and implementation facts
 
-The following are already established:
+The following are established inputs to this authority:
 
 - `Qa04ReferenceWorldMaterialContractV1` marks `physical.d0-presence` as `ProductionMaterializerAvailable` with canonical count 500,000 and primary partition `physical.presence`;
 - `Qa04ReferenceWorldDependencyContractV1` has no remaining Physical Presence materialization blocker;
@@ -23,7 +24,7 @@ The following are already established:
 - standard derived indexes are `society.property-by-asset` and `society.property-by-holder`;
 - the generic payload validator checks referenced records for existence and an allowed standard record schema, but does not itself choose the economic meaning of `asset_ref`.
 
-## Recommended benchmark mapping
+## Normative benchmark mapping
 
 For local ordinal `p = 0..49,999`:
 
@@ -50,20 +51,20 @@ lineage_ref  = NONE
 
 No new identity recipe is introduced.
 
-## Exact proposed semantics
+## Exact normative semantics
 
-Approval of this package would mean only the following for `perf.reference.v1` Alpha 1.1:
+For `perf.reference.v1` Alpha 1.1:
 
-- the first 50,000 actual canonical `physical.presence` records are accepted as benchmark economic asset targets for this PropertyRight slice;
+- the first 50,000 actual canonical `physical.presence` records are the benchmark economic asset targets for this PropertyRight slice;
 - the first 50,000 canonical Residents are the corresponding benchmark holders, one-to-one by ordinal;
-- each selected asset has exactly one proposed PropertyRight record and a full `1,000,000 ppm` share in this slice;
+- each selected asset has exactly one PropertyRight record and a full `1,000,000 ppm` share in this slice;
 - `perf.ownership` is a benchmark fixture Token, not a complete legal-right ontology;
 - `effective_from=0` and `effective_until=NONE` define the benchmark genesis period only;
 - `claim_ref=NONE` avoids fabricating a ContractClaim, legal instrument, court judgment, registry entry, or other supporting claim.
 
 ## Important boundaries
 
-This proposal deliberately does **not** mean:
+This authority deliberately does **not** mean:
 
 - that every `physical.presence` record is generally ownable;
 - that the Presence record is the universal long-term identity of a legal asset;
@@ -74,11 +75,11 @@ This proposal deliberately does **not** mean:
 - that transfers, inheritance, liens, leases, layered rights, fractional co-ownership, registration, taxation, or enforcement are defined;
 - that the benchmark token `perf.ownership` constrains a future general right-kind ontology.
 
-The mapping is a narrow benchmark fixture chosen because actual canonical Physical Presence authority already exists and the PropertyRight contract intentionally accepts a cross-domain asset Ref.
+The mapping is a narrow benchmark fixture selected under explicit project-owner approval because actual canonical Physical Presence authority already exists and the PropertyRight contract intentionally accepts a cross-domain asset Ref.
 
 ## Cardinality and uniqueness
 
-The proposed mapping has these exact properties:
+The mapping has these exact properties:
 
 - 50,000 PropertyRight records;
 - 50,000 distinct actual PhysicalPresence assets;
@@ -89,7 +90,7 @@ The proposed mapping has these exact properties:
 - no overlapping share aggregate exists for the selected assets within this slice;
 - all `(asset_ref, holder_ref, right_kind)` tuples are unique.
 
-## Required production proof after approval
+## Mandatory production proof before accepted accounting changes
 
 Accepted accounting must not change until #265 proves all of the following on one current head:
 
@@ -106,11 +107,11 @@ Accepted accounting must not change until #265 proves all of the following on on
 11. fail-closed negative proof for missing/wrong PhysicalPresence, wrong asset partition, missing/wrong Resident, wrong holder partition, wrong Token, share drift/out-of-range, period drift, claim injection, duplicate asset/right relation, duplicate RecordId, population drift, and index cardinality drift;
 12. generic Simulation Core smoke plus full current-head CI.
 
-If the implementation cannot source the first 50,000 Presence records through the already-declared production materializer without introducing any additional semantic/genesis decision, the proof must fail closed and this proposal must return to audit rather than substituting descriptor refs.
+If the implementation cannot source the first 50,000 Presence records through the already-declared production materializer without introducing any additional semantic/genesis decision, the proof must fail closed rather than substituting descriptor refs.
 
-## Acceptance accounting if approved and fully proven
+## Acceptance accounting gate
 
-Current accepted accounting remains:
+Until all mandatory production proof succeeds:
 
 ```text
 Society/Governance accepted = 1,601,200 / 2,000,000
@@ -119,7 +120,7 @@ Society remaining            =   139,800
 Governance remaining         =   259,000
 ```
 
-Only after approval plus all production proof above succeeds:
+Only after all mandatory production proof succeeds on the current #265 head:
 
 ```text
 Society/Governance accepted = 1,651,200 / 2,000,000
@@ -132,7 +133,7 @@ Other reference-world, Infrastructure, workload, Operation, and release flags re
 
 ## Explicit non-decisions
 
-This proposal does not decide the remaining Society slices:
+This authority does not decide the remaining Society slices:
 
 - `society.business_production` 30,000;
 - `society.logistics_obligation` 40,000;
