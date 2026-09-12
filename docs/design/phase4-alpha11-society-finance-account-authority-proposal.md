@@ -42,7 +42,7 @@ ledger_head_digest      = SHA-256(empty byte sequence)
 The exact approved empty-ledger digest is:
 
 ```text
-e3b0c44298fc1c149afbf4c8996fb92427ae41e464f9b934ca495991b7852b855
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 ```
 
 ## Normative meaning and boundaries
