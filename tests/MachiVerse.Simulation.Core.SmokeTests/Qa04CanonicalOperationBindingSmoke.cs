@@ -6,10 +6,10 @@ internal static class Qa04CanonicalOperationBindingSmoke
     internal static void Run()
     {
         Qa04CanonicalOperationBindingV1.ValidateCanonicalContract();
-        Require(Qa04CanonicalOperationBindingV1.BoundFamilies.Count == 5,
-            "QA-04 canonical Operation binding must expose five authority-complete families.");
-        Require(Qa04CanonicalOperationBindingV1.PendingAuthorityFamilies.Count == 1,
-            "QA-04 canonical Operation binding must keep only Infrastructure authority-pending.");
+        Require(Qa04CanonicalOperationBindingV1.BoundFamilies.Count == 6,
+            "QA-04 canonical Operation binding must expose all six authority-complete families.");
+        Require(Qa04CanonicalOperationBindingV1.PendingAuthorityFamilies.Count == 0,
+            "QA-04 canonical Operation binding must not retain an authority-pending family.");
 
         var descriptors = Qa04ReferenceLoadV1.OperationsForStep(1).ToArray();
         var supported = Qa04CanonicalOperationBindingV1.BoundFamilies
@@ -73,31 +73,20 @@ internal static class Qa04CanonicalOperationBindingSmoke
         Require(scheduler.ForEffectiveStep(2).Count == supported.Length,
             "QA-04 authority-complete Operation bindings must enter the ordinary scheduler without identity loss.");
 
+        var infrastructureDescriptor = descriptors.First(item => item.FamilyToken.Value == "infrastructure-service-delivery");
+        var infrastructure = Qa04CanonicalOperationBindingV1.Bind(infrastructureDescriptor, schedulingPolicyGeneration: 1);
+        Require(infrastructure.Operation.OperationKind == "infrastructure.service.reserve" &&
+                infrastructure.OwnerDomain.Value == "infrastructure_information" &&
+                infrastructure.PrimaryTarget == Qa04InfrastructureCanonicalServicePoolV1.Resolve(infrastructureDescriptor.FamilyOrdinal) &&
+                infrastructure.Operation.OperationPayload.Length > 0,
+            "QA-04 infrastructure-service-delivery family must bind to the exact canonical service pool.");
+
         var governanceDescriptor = descriptors.First(item => item.FamilyToken.Value == "governance-security");
         var governance = Qa04CanonicalOperationBindingV1.Bind(governanceDescriptor, schedulingPolicyGeneration: 1);
         Require(governance.Operation.OperationKind == "governance.incident.register" &&
                 governance.OwnerDomain.Value == "governance_security" &&
                 governance.Operation.OperationPayload.Length > 0,
             "QA-04 governance-security family must bind to canonical governance incident registration.");
-
-        RequirePending(descriptors, "infrastructure-service-delivery", "infrastructure-service-pool");
-    }
-
-    private static void RequirePending(
-        IReadOnlyList<Qa04OperationDescriptorV1> descriptors,
-        string family,
-        string qualifier)
-    {
-        var descriptor = descriptors.First(item => item.FamilyToken.Value == family);
-        try
-        {
-            _ = Qa04CanonicalOperationBindingV1.Bind(descriptor, schedulingPolicyGeneration: 1);
-            throw new InvalidOperationException($"QA-04 pending Operation family '{family}' must fail closed.");
-        }
-        catch (InvalidDataException ex) when (
-            ex.Message == $"qa04.workload.operation-authority-binding-undefined:{qualifier}")
-        {
-        }
     }
 
     private static void Require(bool condition, string message)
