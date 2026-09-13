@@ -170,8 +170,8 @@ internal static class Program
             {
                 profile_id = PublicationProfile,
                 gateway_count = 0,
-                view_subscribers = 100,
-                slow_consumers = 10,
+                view_subscribers = 0,
+                slow_consumers = 0,
                 slow_consumers_did_not_block_custody_or_result = false,
                 continuity_after_coalesce_resync = false,
                 failure_codes = failures,
