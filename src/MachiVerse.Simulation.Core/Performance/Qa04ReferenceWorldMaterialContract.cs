@@ -29,7 +29,7 @@ public sealed record Qa04ReferenceMaterialBindingV1(
 /// Machine-readable audit of perf.reference.v1 initial-world classes against the actual production
 /// authority model. A null PrimaryPartitionId is valid for an available class whose canonical
 /// material spans multiple partitions or is owned by a non-Domain authority. The contract remains
-/// fail-closed until Society/Governance and Infrastructure are fully materialized.
+/// fail-closed until Infrastructure is fully materialized.
 /// </summary>
 public static class Qa04ReferenceWorldMaterialContractV1
 {
@@ -60,12 +60,10 @@ public static class Qa04ReferenceWorldMaterialContractV1
             250_000,
             null),
 
-        Blocked(
+        Available(
             "society-governance.active-record",
             2_000_000,
-            null,
-            Qa04ReferenceMaterialBindingStateV1.BlockedByPartitionMapping,
-            "qa04.material.society-governance-partition-mapping-undefined"),
+            null),
 
         Blocked(
             "infrastructure.active-record",
@@ -153,6 +151,12 @@ public static class Qa04ReferenceWorldMaterialContractV1
             physical.PrimaryPartitionId?.Value != "physical.presence" ||
             physical.CanonicalCount != Qa04PhysicalD0MaterializerV1.CanonicalPhysicalCount)
             throw new InvalidDataException("qa04.material.physical-binding-drift");
+
+        var societyGovernance = Get(new StableToken("society-governance.active-record"));
+        if (!societyGovernance.ProductionMaterializerAvailable ||
+            societyGovernance.PrimaryPartitionId is not null ||
+            societyGovernance.CanonicalCount != 2_000_000)
+            throw new InvalidDataException("qa04.material.society-governance-binding-drift");
 
         var terrain = Get(new StableToken("spatial.hot-terrain-brick"));
         if (!terrain.ProductionMaterializerAvailable ||
