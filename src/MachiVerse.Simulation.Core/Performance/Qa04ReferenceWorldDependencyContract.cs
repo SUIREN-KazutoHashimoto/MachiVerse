@@ -22,16 +22,8 @@ public sealed record Qa04ReferenceDependencyBlockerV1(
 
 public static class Qa04ReferenceWorldDependencyContractV1
 {
-    private static readonly IReadOnlyList<Qa04ReferenceDependencyBlockerV1> BlockersValue = Array.AsReadOnly(new[]
-    {
-        RecordSchema(
-            "infrastructure.network-topology.node-edge-targets",
-            "infrastructure.network_topology",
-            "node_refs/edge_refs",
-            "qa04.material.infrastructure-node-edge-authority-undefined"),
-    }
-    .OrderBy(static blocker => blocker.DependencyId.Value, StringComparer.Ordinal)
-    .ToArray());
+    private static readonly IReadOnlyList<Qa04ReferenceDependencyBlockerV1> BlockersValue =
+        Array.AsReadOnly(Array.Empty<Qa04ReferenceDependencyBlockerV1>());
 
     public static IReadOnlyList<Qa04ReferenceDependencyBlockerV1> Blockers => BlockersValue;
     public static IReadOnlyList<StableToken> FailureCodes => BlockersValue.Select(static blocker => blocker.FailureCode).ToArray();
@@ -42,7 +34,7 @@ public static class Qa04ReferenceWorldDependencyContractV1
         Qa04SocietyContractClaimDependencyContractV1.ValidateCanonicalContract();
         Qa04GovernancePermissionLicenseDependencyContractV1.ValidateCanonicalContract();
 
-        if (BlockersValue.Count != 1)
+        if (BlockersValue.Count != 0)
             throw new InvalidDataException("qa04.material.dependency-blocker-count-drift");
         if (BlockersValue.Select(static blocker => blocker.DependencyId).Distinct().Count() != BlockersValue.Count)
             throw new InvalidDataException("qa04.material.dependency-blocker-id-duplicate");
@@ -75,6 +67,7 @@ public static class Qa04ReferenceWorldDependencyContractV1
             "qa04.material.cross-domain-transaction-authority-undefined",
             "qa04.material.terrain-brick-authority-undefined",
             "qa04.material.society-governance-partition-mapping-undefined",
+            "qa04.material.infrastructure-node-edge-authority-undefined",
         };
         if (FailureCodes.Any(code => implemented.Contains(code.Value, StringComparer.Ordinal)))
             throw new InvalidDataException("qa04.material.implemented-world-blocker-retained");
