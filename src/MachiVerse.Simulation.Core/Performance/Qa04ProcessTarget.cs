@@ -75,6 +75,8 @@ public static class Qa04ProcessTargetV1
         Qa04ReferenceScenariosV1.ValidateCanonicalContract();
         Qa04ReferenceWorldMaterializerV1.ValidateCanonicalContract();
         Qa04ReferenceWorldDependencyContractV1.ValidateCanonicalContract();
+        Qa04ReferenceWorldMaterialContractV1.ValidateCanonicalContract();
+        var referenceWorldMaterialized = ReferenceWorldMaterialized();
         return new Qa04ProcessInspectionV1
         {
             SchemaVersion = "1.0",
@@ -92,11 +94,10 @@ public static class Qa04ProcessTargetV1
             DetailSubstateTwoStepBridgeAvailable = true,
             ReducedAuthoritativeStepLoopAvailable = true,
             RunningSnapshotBridgeAvailable = true,
-            ReferenceWorldMaterialized = false,
+            ReferenceWorldMaterialized = referenceWorldMaterialized,
             AuthoritativeStepLoopAvailable = false,
             ReleaseEvidenceCapable = false,
             BlockingFailureCodes = CurrentBlockingFailureCodes(
-                "qa04.target.reference-world-not-materialized",
                 "qa04.target.authoritative-step-loop-not-assembled"),
         };
     }
@@ -160,6 +161,7 @@ public static class Qa04ProcessTargetV1
         var state = CreateProbeWorldState();
         var scheduler = new OperationSchedulerStateV1(0, null, Array.Empty<ScheduledOperationRefV1>());
         var receipt = await target.ExecuteDomainsAsync(state, scheduler, cancellationToken).ConfigureAwait(false);
+        var referenceWorldMaterialized = ReferenceWorldMaterialized();
         return new Qa04ProcessWorkerProbeV1
         {
             SchemaVersion = "1.0",
@@ -168,10 +170,18 @@ public static class Qa04ProcessTargetV1
             DomainCount = receipt.DomainOutputs.Count,
             MaxObservedConcurrency = probe.MaxConcurrency,
             WorkerCountAppliedToDomainExecutor = receipt.WorkerCount == workerCount && probe.MaxConcurrency == expectedConcurrency,
-            ReferenceWorldMaterialized = false,
+            ReferenceWorldMaterialized = referenceWorldMaterialized,
             ReleaseEvidenceCapable = false,
-            BlockingFailureCodes = CurrentBlockingFailureCodes("qa04.target.reference-world-not-materialized"),
+            BlockingFailureCodes = CurrentBlockingFailureCodes(),
         };
+    }
+
+    private static bool ReferenceWorldMaterialized()
+    {
+        Qa04ReferenceWorldDependencyContractV1.ValidateCanonicalContract();
+        Qa04ReferenceWorldMaterialContractV1.ValidateCanonicalContract();
+        return Qa04ReferenceWorldDependencyContractV1.Blockers.Count == 0 &&
+               Qa04ReferenceWorldMaterialContractV1.AllProductionMaterializersAvailable;
     }
 
     private static string[] CurrentBlockingFailureCodes(params string[] additional)
