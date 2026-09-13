@@ -7,7 +7,7 @@ internal static class Qa04ReferenceWorldDependencyContractInitializer
     internal static void Initialize()
     {
         Qa04ReferenceWorldDependencyContractV1.ValidateCanonicalContract();
-        Require(Qa04ReferenceWorldDependencyContractV1.Blockers.Count == 2,
+        Require(Qa04ReferenceWorldDependencyContractV1.Blockers.Count == 1,
             "QA-04 unresolved dependency contract count drifted.");
         Require(Qa04ReferenceWorldDependencyContractV1.FailureCodes.All(
                 static code => code.Value != "qa04.material.market-ref-authority-undefined"),
@@ -36,6 +36,9 @@ internal static class Qa04ReferenceWorldDependencyContractInitializer
         Require(Qa04ReferenceWorldDependencyContractV1.FailureCodes.All(
                 static code => code.Value != "qa04.material.terrain-brick-authority-undefined"),
             "QA-04 dependency contract must not retain the proven full Terrain production blocker.");
+        Require(Qa04ReferenceWorldDependencyContractV1.FailureCodes.All(
+                static code => code.Value != "qa04.material.society-governance-partition-mapping-undefined"),
+            "QA-04 dependency contract must not retain the proven Society/Governance partition-mapping blocker.");
     }
 
     private static void Require(bool condition, string message)
