@@ -1,7 +1,8 @@
-using MachiVerse.Simulation.Core.Determinism;
+using System.Security.Cryptography;
 using MachiVerse.Simulation.Core.Domains.InfrastructureInformation;
 using MachiVerse.Simulation.Core.Domains.PhysicalBuilt;
 using MachiVerse.Simulation.Core.Performance;
+using MachiVerse.Simulation.Core.Persistence;
 using MachiVerse.Simulation.Core.WorldState;
 
 static void Require(bool condition, string message)
@@ -23,15 +24,7 @@ static void RequireInvalid(Action action, string message)
 }
 
 static PartitionRecordRefV1 ScopeForTile(ushort tile)
-    => new(
-        "spatial.scope_registry",
-        DerivedIdentity.DeriveEntityId(
-            Qa04ReferenceLoadV1.WorldId,
-            creationStep: 0,
-            new StableToken("spatial"),
-            OpaqueId128.Zero,
-            new StableToken("smoke.infrastructure-tile-scope"),
-            tile));
+    => Qa04SpatialTileScopeAuthorityV1.ScopeRef(tile);
 
 static void VerifyEveryNodeHasFiveOutgoingEdges(
     IReadOnlyList<InfrastructureNetworkTopologyRecordMaterialV2> records)
@@ -91,6 +84,7 @@ static void VerifyWrongNetworkEdgeFailsClosed(
     throw new InvalidOperationException("Edge owned by a different network must fail topology closure.");
 }
 
+Qa04InfrastructureReferenceDecompositionV1.ValidateCanonicalContract();
 Qa04InfrastructureNetworkMaterializerV1.ValidateCanonicalContract();
 Console.WriteLine($"Validating full canonical Infrastructure topology ({Qa04InfrastructureNetworkMaterializerV1.CanonicalTopologyRecordCount:N0} records)...");
 
@@ -158,10 +152,68 @@ Require(facilityAuthority.CanonicalServicePool.Count == checked((int)Qa04Infrast
 Require(facilityAuthority.CanonicalServicePool.SequenceEqual(Qa04InfrastructureCanonicalServicePoolV1.Expected),
     "Infrastructure canonical service pool must exactly match the deterministic descriptor identity set.");
 
-var snapshot = Qa04FacilityServiceSnapshotRecoveryEvidenceV1.Verify(facilityAuthority);
-Require(snapshot.BuiltStructureCount == Qa04FacilityServiceCanonicalAuthorityV1.CanonicalCount &&
-        snapshot.FacilityServiceCount == Qa04FacilityServiceCanonicalAuthorityV1.CanonicalCount,
+var facilitySnapshot = Qa04FacilityServiceSnapshotRecoveryEvidenceV1.Verify(facilityAuthority);
+Require(facilitySnapshot.BuiltStructureCount == Qa04FacilityServiceCanonicalAuthorityV1.CanonicalCount &&
+        facilitySnapshot.FacilityServiceCount == Qa04FacilityServiceCanonicalAuthorityV1.CanonicalCount,
     "FacilityService Built/Infrastructure Snapshot recovery must preserve the exact semantic record counts.");
+
+Console.WriteLine("Validating aggregate 500,000-record Infrastructure/Information production authority...");
+var serviceAuthority = facilityAuthority.ServiceAuthority;
+var serviceRecovered = Qa04InfrastructureServiceQueueSnapshotRecoveryEvidenceV1.Verify(serviceAuthority);
+Require(serviceRecovered == Qa04InfrastructureServiceQueueCanonicalMaterializerV1.CanonicalMaterializedCount,
+    "Infrastructure service/queue Snapshot recovery count drifted.");
+
+var dependencyAuthority = Qa04InfrastructureDependencyCanonicalAuthorityV1.MaterializeCanonical(serviceAuthority);
+var dependencyRecovered = Qa04InfrastructureDependencySnapshotRecoveryEvidenceV1.Verify(dependencyAuthority);
+Require(dependencyRecovered == Qa04InfrastructureDependencyCanonicalAuthorityV1.CanonicalCount,
+    "Infrastructure dependency Snapshot recovery count drifted.");
+
+var societyAuthority = Qa04SocietyGovernanceCanonicalMaterializerV1.MaterializeCanonical();
+var topologyReferences = new CompositeReferenceResolver(serviceAuthority.References, societyAuthority.References);
+var topologyState = new InfrastructureNetworkTopologyPartitionStateV2(records);
+var topologyAuthority = InfrastructureNetworkTopologySnapshotAuthorityV2.CreateCanonical(
+    topologyState,
+    revision: 1,
+    basisStep: 0,
+    detailLevel: DetailLevelV1.D2RegionalAggregate);
+var topologyProvider = new InfrastructureNetworkTopologySnapshotSectionProviderV2();
+var topologySection = topologyProvider.Create(topologyAuthority, topologyReferences);
+var topologyVerifier = topologyProvider.CreateSemanticVerifier(topologyAuthority.Header, topologyReferences);
+var topologyRecovered = topologyVerifier.Verify(topologySection.Fragments);
+Require(topologyRecovered.LogicalItemCount == Qa04InfrastructureNetworkMaterializerV1.CanonicalTopologyRecordCount &&
+        CryptographicOperations.FixedTimeEquals(topologyRecovered.LogicalContentDigest, topologyAuthority.Header.CanonicalDigest),
+    "Infrastructure topology Snapshot/recovery semantic proof drifted.");
+
+var deliveryAuthority = Qa04InformationDeliveryCanonicalAuthorityV1.MaterializeCanonical(societyAuthority, serviceAuthority);
+var deliveryRecovered = Qa04InformationDeliverySnapshotRecoveryEvidenceV1.Verify(deliveryAuthority);
+Require(deliveryRecovered == Qa04InformationDeliveryCanonicalAuthorityV1.CanonicalCount,
+    "InformationDelivery Snapshot recovery count drifted.");
+
+var remainingInformation = Qa04RemainingInformationCanonicalAuthorityV1.MaterializeCanonical(societyAuthority, serviceAuthority);
+var mediaRecovered = Qa04RemainingInformationSnapshotRecoveryEvidenceV1.VerifyMediaDistribution(remainingInformation);
+var recordStoreRecovered = Qa04RemainingInformationSnapshotRecoveryEvidenceV1.VerifyRecordStore(remainingInformation);
+Require(mediaRecovered == Qa04RemainingInformationCanonicalAuthorityV1.MediaDistributionCount &&
+        recordStoreRecovered == Qa04RemainingInformationCanonicalAuthorityV1.RecordStoreCount,
+    "Remaining Information Snapshot recovery count drifted.");
+
+Require(Qa04InfrastructureTailFullProductionSmoke.VerifiedRecordCount == Qa04InfrastructureTailCanonicalAuthorityV1.CanonicalCount,
+    "Infrastructure tail ModuleInitializer must prove all 19,900 tail records before aggregate publication.");
+Require(Qa04InfrastructureReferenceDecompositionV1.Slices.Count == 16 &&
+        Qa04InfrastructureReferenceDecompositionV1.Slices.Aggregate(0UL, static (sum, slice) => checked(sum + slice.Count)) ==
+            Qa04InfrastructureReferenceDecompositionV1.CanonicalCount,
+    "Infrastructure decomposition must remain an exact 16-slice / 500,000-record partition.");
+
+var aggregateRecovered = checked(
+    topologyRecovered.LogicalItemCount +
+    serviceRecovered +
+    dependencyRecovered +
+    facilitySnapshot.FacilityServiceCount +
+    deliveryRecovered +
+    mediaRecovered +
+    recordStoreRecovered +
+    Qa04InfrastructureTailFullProductionSmoke.VerifiedRecordCount);
+Require(aggregateRecovered == Qa04InfrastructureReferenceDecompositionV1.CanonicalCount,
+    "Aggregate Infrastructure/Information production proof must recover exactly 500,000 canonical records without overlap or gaps.");
 
 var firstBuilt = facilityAuthority.BuiltStructureRecordsByOrdinal[0];
 var wrongBuiltPayload = firstBuilt.Payload with { IntegrityPpm = 999_999 };
@@ -211,7 +263,46 @@ Require(infrastructureBinding.Operation.OperationKind == "infrastructure.service
 Require(Qa04CanonicalWorkloadDependencyContractV1.Blockers.Count == 0,
     "FacilityService proof must close the final QA-04 canonical workload blocker.");
 
+Console.WriteLine(
+    $"infrastructure-aggregate-full-production-pass records={aggregateRecovered} recovered={aggregateRecovered} " +
+    $"topology={topologyRecovered.LogicalItemCount} services_queue={serviceRecovered} dependency={dependencyRecovered} " +
+    $"facility={facilitySnapshot.FacilityServiceCount} delivery={deliveryRecovered} media={mediaRecovered} " +
+    $"record_store={recordStoreRecovered} tail={Qa04InfrastructureTailFullProductionSmoke.VerifiedRecordCount} slices={Qa04InfrastructureReferenceDecompositionV1.Slices.Count}");
 Console.WriteLine($"infrastructure-full-production-pass topology_records={records.Length} facility_records={facilityAuthority.FacilityServices.ItemCount} service_pool={facilityAuthority.CanonicalServicePool.Count}");
+
+sealed class CompositeReferenceResolver : IDomainRecordSchemaResolverV1
+{
+    private readonly IDomainRecordSchemaResolverV1[] _sources;
+
+    public CompositeReferenceResolver(params IDomainRecordSchemaResolverV1[] sources)
+    {
+        _sources = sources ?? throw new ArgumentNullException(nameof(sources));
+        if (_sources.Length == 0 || _sources.Any(static source => source is null))
+            throw new ArgumentException("At least one non-null reference source is required.", nameof(sources));
+    }
+
+    public bool Exists(PartitionRecordRefV1 reference)
+        => TryGetRecordSchema(reference, out _);
+
+    public bool TryGetRecordSchema(PartitionRecordRefV1 reference, out SchemaRefV1 schema)
+    {
+        SchemaRefV1? found = null;
+        foreach (var source in _sources)
+        {
+            if (!source.TryGetRecordSchema(reference, out var candidate)) continue;
+            if (found is { } existing && existing != candidate)
+                throw new InvalidDataException("qa04.infrastructure.aggregate-reference-schema-conflict");
+            found = candidate;
+        }
+        if (found is { } resolved)
+        {
+            schema = resolved;
+            return true;
+        }
+        schema = default;
+        return false;
+    }
+}
 
 sealed class MissingReferenceResolver : IDomainRecordSchemaResolverV1
 {
