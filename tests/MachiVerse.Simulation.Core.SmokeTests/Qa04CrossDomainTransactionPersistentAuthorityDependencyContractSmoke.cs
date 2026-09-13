@@ -10,8 +10,8 @@ internal static class Qa04CrossDomainTransactionPersistentAuthorityDependencyCon
 
         Require(Qa04CrossDomainTransactionPersistentAuthorityDependencyContractV1.Blockers.Count == 0,
             "QA-04 CrossDomainTransaction persistent authority must have no remaining internal blockers.");
-        Require(Qa04CanonicalWorkloadDependencyContractV1.Blockers.Count == 1,
-            "CrossDomainTransaction completion must leave only the Infrastructure operation workload blocker.");
+        Require(Qa04CanonicalWorkloadDependencyContractV1.Blockers.Count == 0,
+            "CrossDomainTransaction completion plus FacilityService authority must leave no canonical workload blockers.");
         Require(Qa04CrossDomainTransactionPersistentAuthorityDependencyContractV1.FailureCodes.Count == 0,
             "Implemented CrossDomainTransaction persistent authority must expose no internal failure codes.");
 
