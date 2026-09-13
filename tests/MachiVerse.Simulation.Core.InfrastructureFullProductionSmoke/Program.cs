@@ -1,11 +1,25 @@
 using MachiVerse.Simulation.Core.Determinism;
 using MachiVerse.Simulation.Core.Domains.InfrastructureInformation;
+using MachiVerse.Simulation.Core.Domains.PhysicalBuilt;
 using MachiVerse.Simulation.Core.Performance;
 using MachiVerse.Simulation.Core.WorldState;
 
 static void Require(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
+}
+
+static void RequireInvalid(Action action, string message)
+{
+    try
+    {
+        action();
+    }
+    catch (InvalidDataException)
+    {
+        return;
+    }
+    throw new InvalidOperationException(message);
 }
 
 static PartitionRecordRefV1 ScopeForTile(ushort tile)
@@ -133,4 +147,78 @@ Require(edgeBinding.MaterialClass.Value == "edge" && edgeBinding.LocalOrdinal ==
 VerifyEveryNodeHasFiveOutgoingEdges(records);
 VerifyWrongNetworkEdgeFailsClosed(records);
 
-Console.WriteLine($"infrastructure-full-production-pass records={records.Length}");
+Console.WriteLine("Validating canonical FacilityService Built/Infrastructure authority...");
+var facilityAuthority = Qa04FacilityServiceCanonicalAuthorityV1.MaterializeCanonical();
+Require(facilityAuthority.BuiltStructures.ItemCount == Qa04FacilityServiceCanonicalAuthorityV1.CanonicalCount,
+    "FacilityService proof must materialize exactly 15,000 BuiltStructure records.");
+Require(facilityAuthority.FacilityServices.ItemCount == Qa04FacilityServiceCanonicalAuthorityV1.CanonicalCount,
+    "FacilityService proof must materialize exactly 15,000 FacilityService records.");
+Require(facilityAuthority.CanonicalServicePool.Count == checked((int)Qa04InfrastructureCanonicalServicePoolV1.CanonicalCount),
+    "Infrastructure canonical service pool must contain exactly 55,000 records.");
+Require(facilityAuthority.CanonicalServicePool.SequenceEqual(Qa04InfrastructureCanonicalServicePoolV1.Expected),
+    "Infrastructure canonical service pool must exactly match the deterministic descriptor identity set.");
+
+var snapshot = Qa04FacilityServiceSnapshotRecoveryEvidenceV1.Verify(facilityAuthority);
+Require(snapshot.BuiltStructureCount == Qa04FacilityServiceCanonicalAuthorityV1.CanonicalCount &&
+        snapshot.FacilityServiceCount == Qa04FacilityServiceCanonicalAuthorityV1.CanonicalCount,
+    "FacilityService Built/Infrastructure Snapshot recovery must preserve the exact semantic record counts.");
+
+var firstBuilt = facilityAuthority.BuiltStructureRecordsByOrdinal[0];
+var wrongBuiltPayload = firstBuilt.Payload with { IntegrityPpm = 999_999 };
+var wrongBuilt = new DomainRecordEnvelopeV1<BuiltStructurePayloadV1>(
+    firstBuilt.RecordId, firstBuilt.RecordSchema, firstBuilt.Revision, firstBuilt.CreatedStep,
+    firstBuilt.RetiredStep, firstBuilt.DetailLevel, firstBuilt.LineageRef, wrongBuiltPayload);
+RequireInvalid(
+    () => Qa04FacilityServiceCanonicalAuthorityV1.ValidateCanonicalBuiltStructureRecord(
+        0, wrongBuilt, facilityAuthority.PhysicalAuthority, facilityAuthority.References),
+    "BuiltStructure payload drift must fail closed.");
+RequireInvalid(
+    () => Qa04FacilityServiceCanonicalAuthorityV1.ValidateCanonicalBuiltStructureRecord(
+        0, firstBuilt, facilityAuthority.PhysicalAuthority, new MissingReferenceResolver()),
+    "Missing BuiltStructure scope/shape authority must fail closed.");
+RequireInvalid(
+    () => Qa04FacilityServiceCanonicalAuthorityV1.ValidateBuiltStructureIdentityUniqueness(new[] { firstBuilt, firstBuilt }),
+    "Duplicate BuiltStructure identity must fail closed.");
+
+var firstFacility = facilityAuthority.FacilityServiceRecordsByOrdinal[0];
+var wrongFacilityPayload = firstFacility.Payload with
+{
+    FacilityRef = Qa04FacilityServiceCanonicalAuthorityV1.BuiltStructureRef(1),
+};
+var wrongFacility = new DomainRecordEnvelopeV1<InfrastructureFacilityServicePayloadV1>(
+    firstFacility.RecordId, firstFacility.RecordSchema, firstFacility.Revision, firstFacility.CreatedStep,
+    firstFacility.RetiredStep, firstFacility.DetailLevel, firstFacility.LineageRef, wrongFacilityPayload);
+RequireInvalid(
+    () => Qa04FacilityServiceCanonicalAuthorityV1.ValidateCanonicalFacilityServiceRecord(
+        0, wrongFacility, facilityAuthority.References),
+    "FacilityService ordinal/facility relation drift must fail closed.");
+RequireInvalid(
+    () => Qa04FacilityServiceCanonicalAuthorityV1.ValidateCanonicalFacilityServiceRecord(
+        0, firstFacility, new MissingReferenceResolver()),
+    "Missing BuiltStructure target authority must fail closed.");
+RequireInvalid(
+    () => Qa04FacilityServiceCanonicalAuthorityV1.ValidateFacilityServiceIdentityUniqueness(new[] { firstFacility, firstFacility }),
+    "Duplicate FacilityService identity must fail closed.");
+
+var infrastructureDescriptor = Qa04ReferenceLoadV1.OperationsForStep(1)
+    .First(static descriptor => descriptor.FamilyToken.Value == "infrastructure-service-delivery");
+var infrastructureBinding = Qa04CanonicalOperationBindingV1.Bind(infrastructureDescriptor, schedulingPolicyGeneration: 1);
+Require(infrastructureBinding.Operation.OperationKind == "infrastructure.service.reserve" &&
+        infrastructureBinding.OwnerDomain.Value == "infrastructure_information" &&
+        infrastructureBinding.PrimaryTarget == Qa04InfrastructureCanonicalServicePoolV1.Resolve(infrastructureDescriptor.FamilyOrdinal) &&
+        infrastructureBinding.BoundDescriptor.PayloadDigest.SequenceEqual(infrastructureBinding.Operation.ImmutablePayloadDigest.ToByteArray()),
+    "Infrastructure Operation must bind to the production service reserve surface with canonical immutable payload digest.");
+Require(Qa04CanonicalWorkloadDependencyContractV1.Blockers.Count == 0,
+    "FacilityService proof must close the final QA-04 canonical workload blocker.");
+
+Console.WriteLine($"infrastructure-full-production-pass topology_records={records.Length} facility_records={facilityAuthority.FacilityServices.ItemCount} service_pool={facilityAuthority.CanonicalServicePool.Count}");
+
+sealed class MissingReferenceResolver : IDomainRecordSchemaResolverV1
+{
+    public bool Exists(PartitionRecordRefV1 reference) => false;
+    public bool TryGetRecordSchema(PartitionRecordRefV1 reference, out SchemaRefV1 schema)
+    {
+        schema = default;
+        return false;
+    }
+}
