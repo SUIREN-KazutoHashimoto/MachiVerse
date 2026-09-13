@@ -58,9 +58,8 @@ public sealed class Qa04GovernanceRemainingCanonicalMaterializationV1
 
 /// <summary>
 /// Production-path realization of phase4-alpha11-governance-remaining-authority.md.
-/// All outgoing references must resolve to already materialized canonical records or to records
-/// created earlier in this dependency-ordered materialization. Descriptor identities alone never
-/// satisfy reference existence.
+/// Every outgoing reference must resolve to an already materialized canonical record or to a record
+/// created earlier in this dependency-ordered materialization.
 /// </summary>
 public static class Qa04GovernanceRemainingCanonicalAuthorityV1
 {
@@ -118,7 +117,7 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
     {
         Qa04SocietyGovernanceReferenceDecompositionV1.ValidateCanonicalContract();
         Qa04GovernanceTerritorialFoundationCanonicalAuthorityV1.ValidateCanonicalContract();
-        Qa04FacilityServiceCanonicalMaterializerV1.ValidateCanonicalContract();
+        Qa04FacilityServiceCanonicalAuthorityV1.ValidateCanonicalContract();
 
         ValidateSlice(GovernanceLawRulePayloadV1.PartitionId, LawRuleStart, LawRuleCount);
         ValidateSlice(GovernanceTaxFiscalPayloadV1.PartitionId, TaxFiscalStart, TaxFiscalCount);
@@ -145,14 +144,13 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
         ValidateCanonicalContract();
 
         var territorial = Qa04GovernanceTerritorialFoundationCanonicalAuthorityV1.MaterializeCanonical();
-        var facility = Qa04FacilityServiceCanonicalMaterializerV1.MaterializeCanonical();
+        var facility = Qa04FacilityServiceCanonicalAuthorityV1.MaterializeCanonical();
         var resolver = new CompositeReferenceResolver(territorial.References, facility.References);
         resolver.AddAll(GovernanceJurisdictionPayloadV1.PartitionId, territorial.JurisdictionRecordsByOrdinal);
         resolver.AddAll(BuiltStructurePayloadV1.PartitionId, facility.BuiltStructureRecordsByOrdinal);
-
         RequireUpstreamReferences(resolver);
-        var validator = new StandardDomainPayloadCodecValidatorV1();
 
+        var validator = new StandardDomainPayloadCodecValidatorV1();
         var lawRules = MaterializeLawRules(validator, resolver);
         resolver.AddAll(GovernanceLawRulePayloadV1.PartitionId, lawRules);
         var taxFiscal = MaterializeTaxFiscal(validator, resolver);
@@ -174,7 +172,16 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
         var lineages = MaterializeLineages(validator, resolver, lawRules);
         resolver.AddAll(GovernanceLineagePayloadV1.PartitionId, lineages);
 
-        ValidateUniqueIds(lawRules, taxFiscal, diplomacy, incidents, investigations, judicialCases, enforcements, military, borders, lineages);
+        EnsureUniqueIds(lawRules.Select(static record => record.RecordId)
+            .Concat(taxFiscal.Select(static record => record.RecordId))
+            .Concat(diplomacy.Select(static record => record.RecordId))
+            .Concat(incidents.Select(static record => record.RecordId))
+            .Concat(investigations.Select(static record => record.RecordId))
+            .Concat(judicialCases.Select(static record => record.RecordId))
+            .Concat(enforcements.Select(static record => record.RecordId))
+            .Concat(military.Select(static record => record.RecordId))
+            .Concat(borders.Select(static record => record.RecordId))
+            .Concat(lineages.Select(static record => record.RecordId)));
 
         var result = new Qa04GovernanceRemainingCanonicalMaterializationV1(
             Partition(GovernanceLawRulePayloadV1.PartitionId, lawRules),
@@ -189,20 +196,15 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
             Partition(GovernanceLineagePayloadV1.PartitionId, lineages),
             Array.AsReadOnly(lawRules),
             resolver);
-
         if (result.MaterializedRecordCount != CanonicalCount)
             throw new InvalidDataException("qa04.governance.remaining-total-count-drift");
         return result;
     }
 
-    private static DomainRecordEnvelopeV1<GovernanceLawRulePayloadV1>[] MaterializeLawRules(
-        StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
+    private static DomainRecordEnvelopeV1<GovernanceLawRulePayloadV1>[] MaterializeLawRules(StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
     {
         var predicate = new GovernanceRulePredicateAstNestedValueV1(new LawPredicateNodeV1(
-            LawPredicateNodeKindV1.FactEquals,
-            Array.Empty<LawPredicateNodeV1>(),
-            Key: SubjectClassKey,
-            TokenValue: ReferenceSubject));
+            LawPredicateNodeKindV1.FactEquals, Array.Empty<LawPredicateNodeV1>(), Key: SubjectClassKey, TokenValue: ReferenceSubject));
         var effect = new GovernanceRuleEffectAstNestedValueV1(new LawEffectV1(LawEffectKindV1.Permit, ReferencePermit));
         var records = new DomainRecordEnvelopeV1<GovernanceLawRulePayloadV1>[checked((int)LawRuleCount)];
         for (ulong ordinal = 0; ordinal < LawRuleCount; ordinal++)
@@ -215,8 +217,7 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
         return records;
     }
 
-    private static DomainRecordEnvelopeV1<GovernanceTaxFiscalPayloadV1>[] MaterializeTaxFiscal(
-        StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
+    private static DomainRecordEnvelopeV1<GovernanceTaxFiscalPayloadV1>[] MaterializeTaxFiscal(StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
     {
         var records = new DomainRecordEnvelopeV1<GovernanceTaxFiscalPayloadV1>[checked((int)TaxFiscalCount)];
         for (ulong ordinal = 0; ordinal < TaxFiscalCount; ordinal++)
@@ -229,8 +230,7 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
         return records;
     }
 
-    private static DomainRecordEnvelopeV1<GovernanceDiplomacyPayloadV1>[] MaterializeDiplomacy(
-        StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
+    private static DomainRecordEnvelopeV1<GovernanceDiplomacyPayloadV1>[] MaterializeDiplomacy(StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
     {
         var records = new DomainRecordEnvelopeV1<GovernanceDiplomacyPayloadV1>[checked((int)DiplomacyCount)];
         for (ulong ordinal = 0; ordinal < DiplomacyCount; ordinal++)
@@ -238,11 +238,9 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
             var p0 = ordinal % PolityCount;
             var p1 = (p0 + 1 + ordinal / PolityCount) % PolityCount;
             if (p0 == p1) throw new InvalidDataException("qa04.governance.diplomacy-self-party");
-            var parties = SortRefs(
-                ExistingRef(GovernancePolityPayloadV1.PartitionId, p0, resolver),
-                ExistingRef(GovernancePolityPayloadV1.PartitionId, p1, resolver));
             var payload = new GovernanceDiplomacyPayloadV1(
-                parties, DiplomacyKind, Active, 0, null,
+                SortRefs(ExistingRef(GovernancePolityPayloadV1.PartitionId, p0, resolver), ExistingRef(GovernancePolityPayloadV1.PartitionId, p1, resolver)),
+                DiplomacyKind, Active, 0, null,
                 new[] { GeneratedRef(GovernanceLawRulePayloadV1.PartitionId, LawRuleStart, ordinal % LawRuleCount, resolver) },
                 DiplomacyTermsDigest.ToArray());
             records[checked((int)ordinal)] = BuildValidated(validator, resolver, GovernanceDiplomacyPayloadV1.PartitionId, DiplomacyStart, ordinal, payload, payload.ToStandardPayload());
@@ -250,25 +248,24 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
         return records;
     }
 
-    private static DomainRecordEnvelopeV1<GovernanceSecurityIncidentPayloadV1>[] MaterializeSecurityIncidents(
-        StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
+    private static DomainRecordEnvelopeV1<GovernanceSecurityIncidentPayloadV1>[] MaterializeSecurityIncidents(StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
     {
         var records = new DomainRecordEnvelopeV1<GovernanceSecurityIncidentPayloadV1>[checked((int)SecurityIncidentCount)];
         for (ulong ordinal = 0; ordinal < SecurityIncidentCount; ordinal++)
         {
+            var scope = Qa04SpatialTileScopeAuthorityV1.ScopeRef(checked((ushort)(ordinal % TileScopeCount)));
+            if (!resolver.Exists(scope)) throw new InvalidDataException("qa04.governance.remaining-tile-scope-missing");
             var payload = new GovernanceSecurityIncidentPayloadV1(
                 SecurityIncidentKind,
                 new[] { ExistingRef(SocietyOrganizationPayloadV1.PartitionId, ordinal % OrganizationCount, resolver) },
-                Qa04SpatialTileScopeAuthorityV1.ScopeRef(checked((ushort)(ordinal % TileScopeCount))),
-                0, Array.Empty<PartitionRecordRefV1>(), Recognized,
+                scope, 0, Array.Empty<PartitionRecordRefV1>(), Recognized,
                 checked((uint)(100_000 + 100_000 * (ordinal % 9))));
             records[checked((int)ordinal)] = BuildValidated(validator, resolver, GovernanceSecurityIncidentPayloadV1.PartitionId, SecurityIncidentStart, ordinal, payload, payload.ToStandardPayload());
         }
         return records;
     }
 
-    private static DomainRecordEnvelopeV1<GovernanceInvestigationPayloadV1>[] MaterializeInvestigations(
-        StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
+    private static DomainRecordEnvelopeV1<GovernanceInvestigationPayloadV1>[] MaterializeInvestigations(StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
     {
         var records = new DomainRecordEnvelopeV1<GovernanceInvestigationPayloadV1>[checked((int)InvestigationCount)];
         for (ulong ordinal = 0; ordinal < InvestigationCount; ordinal++)
@@ -285,8 +282,7 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
         return records;
     }
 
-    private static DomainRecordEnvelopeV1<GovernanceJudicialCasePayloadV1>[] MaterializeJudicialCases(
-        StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
+    private static DomainRecordEnvelopeV1<GovernanceJudicialCasePayloadV1>[] MaterializeJudicialCases(StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
     {
         var records = new DomainRecordEnvelopeV1<GovernanceJudicialCasePayloadV1>[checked((int)JudicialCaseCount)];
         for (ulong ordinal = 0; ordinal < JudicialCaseCount; ordinal++)
@@ -296,8 +292,7 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
                 ExistingRef(SocietyOrganizationPayloadV1.PartitionId, (ordinal + 1) % OrganizationCount, resolver));
             if (parties[0] == parties[1]) throw new InvalidDataException("qa04.governance.judicial-party-collapse");
             var payload = new GovernanceJudicialCasePayloadV1(
-                CaseKind,
-                ExistingRef(GovernanceJurisdictionPayloadV1.PartitionId, ordinal % JurisdictionCount, resolver),
+                CaseKind, ExistingRef(GovernanceJurisdictionPayloadV1.PartitionId, ordinal % JurisdictionCount, resolver),
                 parties, Array.Empty<PartitionRecordRefV1>(),
                 new[] { GeneratedRef(GovernanceLawRulePayloadV1.PartitionId, LawRuleStart, ordinal % LawRuleCount, resolver) },
                 Open, 0, null);
@@ -306,8 +301,7 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
         return records;
     }
 
-    private static DomainRecordEnvelopeV1<GovernanceEnforcementPayloadV1>[] MaterializeEnforcements(
-        StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
+    private static DomainRecordEnvelopeV1<GovernanceEnforcementPayloadV1>[] MaterializeEnforcements(StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
     {
         var records = new DomainRecordEnvelopeV1<GovernanceEnforcementPayloadV1>[checked((int)EnforcementCount)];
         for (ulong ordinal = 0; ordinal < EnforcementCount; ordinal++)
@@ -317,15 +311,13 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
             if (subject == target) throw new InvalidDataException("qa04.governance.enforcement-target-collapse");
             var payload = new GovernanceEnforcementPayloadV1(
                 ExistingRef(GovernancePublicAuthorityPayloadV1.PartitionId, ordinal % PublicAuthorityCount, resolver),
-                EnforcementKind, new[] { subject }, new[] { target }, Issued, 0, 0,
-                Array.Empty<PartitionRecordRefV1>());
+                EnforcementKind, new[] { subject }, new[] { target }, Issued, 0, 0, Array.Empty<PartitionRecordRefV1>());
             records[checked((int)ordinal)] = BuildValidated(validator, resolver, GovernanceEnforcementPayloadV1.PartitionId, EnforcementStart, ordinal, payload, payload.ToStandardPayload());
         }
         return records;
     }
 
-    private static DomainRecordEnvelopeV1<GovernanceMilitaryAuthorityPayloadV1>[] MaterializeMilitaryAuthorities(
-        StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
+    private static DomainRecordEnvelopeV1<GovernanceMilitaryAuthorityPayloadV1>[] MaterializeMilitaryAuthorities(StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver)
     {
         var records = new DomainRecordEnvelopeV1<GovernanceMilitaryAuthorityPayloadV1>[checked((int)MilitaryAuthorityCount)];
         for (ulong ordinal = 0; ordinal < MilitaryAuthorityCount; ordinal++)
@@ -342,8 +334,7 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
     }
 
     private static DomainRecordEnvelopeV1<GovernanceBorderControlPayloadV1>[] MaterializeBorderControls(
-        StandardDomainPayloadCodecValidatorV1 validator,
-        CompositeReferenceResolver resolver,
+        StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver,
         IReadOnlyList<DomainRecordEnvelopeV1<BuiltStructurePayloadV1>> builtStructures)
     {
         if ((ulong)builtStructures.Count < BuiltStructureCount)
@@ -353,10 +344,11 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
         {
             var checkpointRecord = builtStructures[checked((int)(ordinal % BuiltStructureCount))];
             var checkpoint = new PartitionRecordRefV1(BuiltStructurePayloadV1.PartitionId, checkpointRecord.RecordId);
-            if (!resolver.Exists(checkpoint)) throw new InvalidDataException("qa04.governance.border-checkpoint-missing");
+            var boundary = Qa04SpatialTileScopeAuthorityV1.ScopeRef(checked((ushort)(ordinal % TileScopeCount)));
+            if (!resolver.Exists(checkpoint) || !resolver.Exists(boundary))
+                throw new InvalidDataException("qa04.governance.border-anchor-missing");
             var payload = new GovernanceBorderControlPayloadV1(
-                ExistingRef(GovernanceJurisdictionPayloadV1.PartitionId, ordinal, resolver),
-                Qa04SpatialTileScopeAuthorityV1.ScopeRef(checked((ushort)(ordinal % TileScopeCount))),
+                ExistingRef(GovernanceJurisdictionPayloadV1.PartitionId, ordinal, resolver), boundary,
                 new[] { checkpoint },
                 new[] { GeneratedRef(GovernanceLawRulePayloadV1.PartitionId, LawRuleStart, ordinal % LawRuleCount, resolver) },
                 Active, checked((uint)(1 + ordinal % 1_000)));
@@ -366,29 +358,24 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
     }
 
     private static DomainRecordEnvelopeV1<GovernanceLineagePayloadV1>[] MaterializeLineages(
-        StandardDomainPayloadCodecValidatorV1 validator,
-        CompositeReferenceResolver resolver,
+        StandardDomainPayloadCodecValidatorV1 validator, CompositeReferenceResolver resolver,
         IReadOnlyList<DomainRecordEnvelopeV1<GovernanceLawRulePayloadV1>> lawRules)
     {
         var records = new DomainRecordEnvelopeV1<GovernanceLineagePayloadV1>[checked((int)LineageCount)];
         for (ulong ordinal = 0; ordinal < LineageCount; ordinal++)
         {
             var source = lawRules[checked((int)ordinal)];
-            var subject = new PartitionRecordRefV1(GovernanceLawRulePayloadV1.PartitionId, source.RecordId);
             var payload = new GovernanceLineagePayloadV1(
-                subject, Array.Empty<PartitionRecordRefV1>(), Genesis, 0, source.Payload.CanonicalDigest());
+                new PartitionRecordRefV1(GovernanceLawRulePayloadV1.PartitionId, source.RecordId),
+                Array.Empty<PartitionRecordRefV1>(), Genesis, 0, source.Payload.CanonicalDigest());
             records[checked((int)ordinal)] = BuildValidated(validator, resolver, GovernanceLineagePayloadV1.PartitionId, LineageStart, ordinal, payload, payload.ToStandardPayload());
         }
         return records;
     }
 
     private static DomainRecordEnvelopeV1<TPayload> BuildValidated<TPayload>(
-        StandardDomainPayloadCodecValidatorV1 validator,
-        IDomainRecordSchemaResolverV1 resolver,
-        string partitionId,
-        ulong expectedStart,
-        ulong localOrdinal,
-        TPayload payload,
+        StandardDomainPayloadCodecValidatorV1 validator, IDomainRecordSchemaResolverV1 resolver,
+        string partitionId, ulong expectedStart, ulong localOrdinal, TPayload payload,
         IReadOnlyDictionary<string, object?> standardPayload)
     {
         validator.Validate(partitionId, standardPayload, resolver);
@@ -400,14 +387,8 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
             binding.UsesSpecializedIdentity || binding.Descriptor.DetailLevel != DetailLevelV1.D2RegionalAggregate)
             throw new InvalidDataException($"qa04.governance.remaining-binding-drift:{partitionId}");
         return new DomainRecordEnvelopeV1<TPayload>(
-            binding.Descriptor.RecordId,
-            StandardDomainPartitionRegistry.Get(partitionId).RecordSchema,
-            revision: 1,
-            createdStep: 0,
-            retiredStep: null,
-            binding.Descriptor.DetailLevel,
-            lineageRef: null,
-            payload);
+            binding.Descriptor.RecordId, StandardDomainPartitionRegistry.Get(partitionId).RecordSchema,
+            revision: 1, createdStep: 0, retiredStep: null, binding.Descriptor.DetailLevel, lineageRef: null, payload);
     }
 
     private static PartitionRecordRefV1 ExistingRef(string partitionId, ulong localOrdinal, IDomainRecordSchemaResolverV1 resolver)
@@ -418,8 +399,7 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
         return reference;
     }
 
-    private static PartitionRecordRefV1 GeneratedRef(
-        string partitionId, ulong expectedStart, ulong localOrdinal, IDomainRecordSchemaResolverV1 resolver)
+    private static PartitionRecordRefV1 GeneratedRef(string partitionId, ulong expectedStart, ulong localOrdinal, IDomainRecordSchemaResolverV1 resolver)
     {
         var slice = Qa04SocietyGovernanceReferenceDecompositionV1.Get(partitionId);
         if (slice.StartOrdinal != expectedStart) throw new InvalidDataException($"qa04.governance.remaining-slice-start-drift:{partitionId}");
@@ -464,8 +444,7 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
             .ThenBy(static value => value.RecordId)
             .ToArray();
 
-    private static DomainPartitionStateV1<TPayload> Partition<TPayload>(
-        string partitionId, IReadOnlyList<DomainRecordEnvelopeV1<TPayload>> records)
+    private static DomainPartitionStateV1<TPayload> Partition<TPayload>(string partitionId, IReadOnlyList<DomainRecordEnvelopeV1<TPayload>> records)
         => new(StandardDomainPartitionRegistry.Get(partitionId), records);
 
     private static void ValidateSlice(string partitionId, ulong expectedStart, ulong expectedCount)
@@ -477,20 +456,14 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
             throw new InvalidDataException($"qa04.governance.remaining-owner-drift:{partitionId}");
     }
 
-    private static void ValidateUniqueIds(params System.Collections.IEnumerable[] partitions)
+    private static void EnsureUniqueIds(IEnumerable<OpaqueId128> ids)
     {
-        var ids = new HashSet<OpaqueId128>();
+        var set = new HashSet<OpaqueId128>();
         ulong count = 0;
-        foreach (var partition in partitions)
+        foreach (var id in ids)
         {
-            foreach (var item in partition)
-            {
-                var property = item!.GetType().GetProperty(nameof(DomainRecordEnvelopeV1<object>.RecordId))
-                    ?? throw new InvalidDataException("qa04.governance.remaining-record-id-reflection");
-                var id = (OpaqueId128)(property.GetValue(item) ?? throw new InvalidDataException("qa04.governance.remaining-record-id-null"));
-                if (!ids.Add(id)) throw new InvalidDataException("qa04.governance.remaining-record-id-duplicate");
-                count++;
-            }
+            if (!set.Add(id)) throw new InvalidDataException("qa04.governance.remaining-record-id-duplicate");
+            count++;
         }
         if (count != CanonicalCount) throw new InvalidDataException("qa04.governance.remaining-unique-id-count");
     }
@@ -520,9 +493,7 @@ public static class Qa04GovernanceRemainingCanonicalAuthorityV1
         {
             if (_own.TryGetValue(reference, out schema)) return true;
             foreach (var upstream in _upstream)
-            {
                 if (upstream.TryGetRecordSchema(reference, out schema)) return true;
-            }
             schema = default;
             return false;
         }
