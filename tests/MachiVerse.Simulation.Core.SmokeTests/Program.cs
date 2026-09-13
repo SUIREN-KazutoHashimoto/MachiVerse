@@ -268,6 +268,7 @@ await Qa04AcceptedOperationLossGuardSqliteSmoke.RunAsync();
 await Qa04BenchmarkRunMeasurementSessionInitializer.RunAsync();
 await Qa04ReducedCommitMeasurementInitializer.RunAsync();
 Qa04ReferenceLoadSmoke.Run();
+Qa04InfrastructureServiceReserveApplicationSmoke.Run();
 await Qa04RuntimeTargetSmoke.RunAsync();
 await Qa04CoreSubstateAuthoritySmoke.RunAsync();
 Sim04WorldStateSmoke.Run();
