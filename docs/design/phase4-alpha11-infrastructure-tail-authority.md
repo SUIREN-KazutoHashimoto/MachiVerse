@@ -63,14 +63,14 @@ The benchmark does not invent an active world failure at genesis. Instead it rec
 For local ordinal `r = 0..9,999`:
 
 ```text
-subject_ref          = canonicalServicePool[r]
-failure_kind         = perf.benchmark-recovery-proof
-severity_ppm         = 0
-started_step         = 0
+subject_ref           = canonicalServicePool[r]
+failure_kind          = perf.benchmark-recovery-proof
+severity_ppm          = 0
+started_step          = 0
 recovery_progress_ppm = 1,000,000
 expected_restore_step = NONE
-dependency_refs      = []
-status               = restored
+dependency_refs       = []
+status                = restored
 ```
 
 This is a benchmark genesis evidence record, not a claim that production failures have zero severity or empty dependency sets.
@@ -87,11 +87,9 @@ For local ordinal `l = 0..4,899`:
 subject_ref      = FacilityService[l]
 predecessor_refs = []
 change_kind      = perf.genesis
- effective_step  = 0
+effective_step   = 0
 source_digest    = FacilityService[l].CanonicalDigest()
 ```
-
-The leading whitespace in the notation above has no semantic meaning; `effective_step` is exactly zero.
 
 The empty predecessor list is the explicit benchmark genesis boundary. `source_digest` MUST be the actual canonical payload digest of the referenced FacilityService record and MUST fail closed if that subject payload drifts.
 
