@@ -11,10 +11,10 @@ internal static class Qa04ReferenceWorldMaterialContractSmoke
 
         Require(Qa04ReferenceWorldMaterialContractV1.Bindings.Count == 9,
             "QA-04 material contract must cover all nine canonical reference classes.");
-        Require(Qa04ReferenceWorldDependencyContractV1.Blockers.Count == 1,
-            "QA-04 dependency contract must expose only the unresolved Infrastructure blocker.");
-        Require(!Qa04ReferenceWorldMaterialContractV1.AllProductionMaterializersAvailable,
-            "QA-04 reference world must remain fail-closed while Infrastructure is unresolved.");
+        Require(Qa04ReferenceWorldDependencyContractV1.Blockers.Count == 0,
+            "QA-04 dependency contract must be empty after full reference-world production proof.");
+        Require(Qa04ReferenceWorldMaterialContractV1.AllProductionMaterializersAvailable,
+            "QA-04 reference world must expose production materializers for all nine canonical classes.");
 
         RequireAvailable("resident.persistent-identity", "resident.identity_lifecycle");
         RequireAvailable("participation.control_mode", "participation.control_mode");
@@ -22,7 +22,7 @@ internal static class Qa04ReferenceWorldMaterialContractSmoke
         RequireAvailable("environment.d0-cell-cohort", null);
         RequireAvailable("environment.d1-aggregate", null);
         RequireAvailable("society-governance.active-record", null);
-        RequireState("infrastructure.active-record", Qa04ReferenceMaterialBindingStateV1.BlockedByRecordSchema);
+        RequireAvailable("infrastructure.active-record", null);
         RequireAvailable("spatial.hot-terrain-brick", "spatial.terrain_geometry");
         RequireAvailable("transaction.active-cross-domain", null);
 
@@ -34,42 +34,17 @@ internal static class Qa04ReferenceWorldMaterialContractSmoke
         Require(societyGovernance.CanonicalCount == 2_000_000 && societyGovernance.ProductionMaterializerAvailable,
             "QA-04 Society/Governance material binding must expose the proven 2,000,000-record production authority.");
 
-        var blocked = Qa04ReferenceWorldMaterialContractV1.Bindings
-            .Where(static binding => !binding.ProductionMaterializerAvailable)
-            .ToArray();
-        Require(blocked.Length == 1,
-            "QA-04 unresolved reference class count drifted.");
-        Require(blocked.All(static binding => binding.BlockingFailureCode is not null),
-            "QA-04 blocked material binding must expose a stable failure code.");
+        var infrastructure = Qa04ReferenceWorldMaterialContractV1.Get(new StableToken("infrastructure.active-record"));
+        Require(infrastructure.CanonicalCount == Qa04InfrastructureReferenceDecompositionV1.CanonicalCount &&
+                infrastructure.ProductionMaterializerAvailable,
+            "QA-04 Infrastructure material binding must expose the proven 500,000-record production authority.");
 
-        var expectedBlockers = new[]
-        {
-            "qa04.material.infrastructure-node-edge-authority-undefined",
-        };
-        var materialBlockerCodes = Qa04ReferenceWorldMaterialContractV1.BlockingFailureCodes
-            .Select(static code => code.Value)
-            .ToArray();
-        Require(materialBlockerCodes.SequenceEqual(expectedBlockers, StringComparer.Ordinal),
-            "QA-04 material blocker ordering/content drifted.");
+        Require(Qa04ReferenceWorldMaterialContractV1.BlockingFailureCodes.Count == 0,
+            "QA-04 complete material contract must expose no blocking failure codes.");
+        Require(Qa04ReferenceWorldDependencyContractV1.FailureCodes.Count == 0,
+            "QA-04 complete dependency contract must expose no failure codes.");
 
-        var dependencyCodes = Qa04ReferenceWorldDependencyContractV1.FailureCodes
-            .Select(static code => code.Value)
-            .ToArray();
-        Require(dependencyCodes.SequenceEqual(expectedBlockers.OrderBy(static code => code, StringComparer.Ordinal), StringComparer.Ordinal),
-            "QA-04 material/dependency blocker sets must remain identical after Society/Governance release.");
-
-        var rejected = false;
-        try
-        {
-            Qa04ReferenceWorldMaterialContractV1.RequireAllProductionMaterializersAvailable();
-        }
-        catch (InvalidDataException ex) when (
-            ex.Message == "qa04.material.infrastructure-node-edge-authority-undefined")
-        {
-            rejected = true;
-        }
-        Require(rejected,
-            "QA-04 full materialization guard must fail closed on the unresolved Infrastructure class.");
+        Qa04ReferenceWorldMaterialContractV1.RequireAllProductionMaterializersAvailable();
     }
 
     private static void RequireAvailable(string classToken, string? partitionId)
@@ -80,13 +55,6 @@ internal static class Qa04ReferenceWorldMaterialContractSmoke
                 binding.PrimaryPartitionId?.Value == partitionId &&
                 binding.BlockingFailureCode is null,
             $"QA-04 material binding must be available for {classToken}.");
-    }
-
-    private static void RequireState(string classToken, Qa04ReferenceMaterialBindingStateV1 expected)
-    {
-        var binding = Qa04ReferenceWorldMaterialContractV1.Get(new StableToken(classToken));
-        Require(!binding.ProductionMaterializerAvailable && binding.State == expected,
-            $"QA-04 material binding state drifted for {classToken}.");
     }
 
     private static void Require(bool condition, string message)
