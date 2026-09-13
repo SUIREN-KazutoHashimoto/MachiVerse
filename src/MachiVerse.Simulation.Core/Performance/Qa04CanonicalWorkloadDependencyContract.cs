@@ -16,27 +16,15 @@ public sealed record Qa04CanonicalWorkloadDependencyV1(
     StableToken FailureCode);
 
 /// <summary>
-/// Fail-closed audit of the remaining normative bindings required to turn the already-canonical
-/// perf.reference.v1 workload descriptors into production scheduler/domain/detail authority.
-///
-/// This contract is intentionally separate from Qa04ReferenceWorldDependencyContractV1: the world
-/// contract owns initial authoritative material, while this contract owns workload-to-runtime
-/// binding. Operation binding currently closes five of six families; only the complete canonical
-/// Infrastructure service pool remains authority-pending. Transaction creation has the exact 10,000
-/// ACTIVE genesis set, 200-entry other-kind allocation, 1,000-per-300-Step production turnover path,
-/// and actual authority for all eight participant partitions, including participation.control_mode.
-/// Detail-transition binding is closed by the approved 4,096-record DetailRegion authority, all
-/// 1,424 canonical request bindings, and production Snapshot/recovery evidence.
+/// Fail-closed audit of the normative bindings required to turn canonical perf.reference.v1
+/// workload descriptors into production scheduler/domain/detail authority. All three binding
+/// surfaces are now authority-complete: all six Operation families, transaction creation/turnover,
+/// and all canonical DetailTransition requests.
 /// </summary>
 public static class Qa04CanonicalWorkloadDependencyContractV1
 {
-    private static readonly IReadOnlyList<Qa04CanonicalWorkloadDependencyV1> BlockersValue = Array.AsReadOnly(new[]
-    {
-        Blocker(
-            "workload.operation.authority-binding",
-            Qa04CanonicalWorkloadDependencyKindV1.OperationAuthorityBinding,
-            "qa04.workload.operation-authority-binding-undefined"),
-    });
+    private static readonly IReadOnlyList<Qa04CanonicalWorkloadDependencyV1> BlockersValue =
+        Array.AsReadOnly(Array.Empty<Qa04CanonicalWorkloadDependencyV1>());
 
     public static IReadOnlyList<Qa04CanonicalWorkloadDependencyV1> Blockers => BlockersValue;
 
@@ -48,7 +36,7 @@ public static class Qa04CanonicalWorkloadDependencyContractV1
         Qa04ReferenceLoadV1.ValidateCanonicalContract();
         Qa04ReferenceScenariosV1.ValidateCanonicalContract();
 
-        if (BlockersValue.Count != 1)
+        if (BlockersValue.Count != 0)
             throw new InvalidDataException("qa04.workload.dependency-blocker-count-drift");
         if (BlockersValue.Select(static blocker => blocker.DependencyId).Distinct().Count() != BlockersValue.Count)
             throw new InvalidDataException("qa04.workload.dependency-blocker-id-duplicate");
@@ -91,6 +79,7 @@ public static class Qa04CanonicalWorkloadDependencyContractV1
         {
             "environment-spatial-admin-synthetic",
             "governance-security",
+            "infrastructure-service-delivery",
             "participation-control-resident-action",
             "physical-item-movement-work",
             "society-market-payment-contract",
@@ -98,15 +87,7 @@ public static class Qa04CanonicalWorkloadDependencyContractV1
         if (!boundFamilies.SequenceEqual(expectedBoundFamilies, StringComparer.Ordinal))
             throw new InvalidDataException("qa04.workload.operation-bound-family-progress-drift");
 
-        var pendingFamilies = Qa04CanonicalOperationBindingV1.PendingAuthorityFamilies
-            .Select(static family => family.Value)
-            .OrderBy(static family => family, StringComparer.Ordinal)
-            .ToArray();
-        var expectedPendingFamilies = new[]
-        {
-            "infrastructure-service-delivery",
-        };
-        if (!pendingFamilies.SequenceEqual(expectedPendingFamilies, StringComparer.Ordinal))
+        if (Qa04CanonicalOperationBindingV1.PendingAuthorityFamilies.Count != 0)
             throw new InvalidDataException("qa04.workload.operation-pending-family-progress-drift");
 
         var steady = Qa04ReferenceLoadV1.OperationsForStep(1).ToArray();
@@ -158,10 +139,4 @@ public static class Qa04CanonicalWorkloadDependencyContractV1
             firstCadence.Count(static requirement => requirement.Direction == DetailTransitionDirectionV1.Demotion) != 10)
             throw new InvalidDataException("qa04.workload.detail-transition-binding-cadence-progress-drift");
     }
-
-    private static Qa04CanonicalWorkloadDependencyV1 Blocker(
-        string dependencyId,
-        Qa04CanonicalWorkloadDependencyKindV1 kind,
-        string failureCode)
-        => new(new StableToken(dependencyId), kind, new StableToken(failureCode));
 }
