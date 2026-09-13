@@ -6,6 +6,8 @@ using MachiVerse.Simulation.Core.WorldState;
 
 internal static class Qa04InfrastructureTailFullProductionSmoke
 {
+    internal static ulong VerifiedRecordCount { get; private set; }
+
     [ModuleInitializer]
     internal static void Run()
     {
@@ -28,6 +30,10 @@ internal static class Qa04InfrastructureTailFullProductionSmoke
                 snapshot.LineageCount == Qa04InfrastructureTailCanonicalAuthorityV1.LineageCount,
             "Infrastructure tail Snapshot recovery must preserve exact semantic counts.");
 
+        VerifiedRecordCount = checked(snapshot.AddressPlaceIndexCount + snapshot.FailureRecoveryCount + snapshot.LineageCount);
+        Require(VerifiedRecordCount == Qa04InfrastructureTailCanonicalAuthorityV1.CanonicalCount,
+            "Infrastructure tail verified record count drifted.");
+
         VerifyAddressFailClosed(materialization);
         VerifyFailureRecoveryFailClosed(materialization);
         VerifyLineageFailClosed(materialization);
@@ -35,7 +41,7 @@ internal static class Qa04InfrastructureTailFullProductionSmoke
         Console.WriteLine(
             $"infrastructure-tail-full-production-pass address={materialization.AddressPlaceIndexes.ItemCount} " +
             $"failure={materialization.FailureRecoveries.ItemCount} lineage={materialization.Lineages.ItemCount} " +
-            $"recovered={snapshot.AddressPlaceIndexCount + snapshot.FailureRecoveryCount + snapshot.LineageCount}");
+            $"recovered={VerifiedRecordCount}");
     }
 
     private static void VerifyAddressFailClosed(Qa04InfrastructureTailCanonicalMaterializationV1 materialization)
