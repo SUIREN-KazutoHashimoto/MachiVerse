@@ -28,8 +28,7 @@ public sealed record Qa04ReferenceMaterialBindingV1(
 /// <summary>
 /// Machine-readable audit of perf.reference.v1 initial-world classes against the actual production
 /// authority model. A null PrimaryPartitionId is valid for an available class whose canonical
-/// material spans multiple partitions or is owned by a non-Domain authority. The contract remains
-/// fail-closed until Infrastructure is fully materialized.
+/// material spans multiple partitions or is owned by a non-Domain authority.
 /// </summary>
 public static class Qa04ReferenceWorldMaterialContractV1
 {
@@ -65,12 +64,10 @@ public static class Qa04ReferenceWorldMaterialContractV1
             2_000_000,
             null),
 
-        Blocked(
+        Available(
             "infrastructure.active-record",
-            500_000,
-            null,
-            Qa04ReferenceMaterialBindingStateV1.BlockedByRecordSchema,
-            "qa04.material.infrastructure-node-edge-authority-undefined"),
+            Qa04InfrastructureReferenceDecompositionV1.CanonicalCount,
+            null),
 
         Available(
             "spatial.hot-terrain-brick",
@@ -105,6 +102,7 @@ public static class Qa04ReferenceWorldMaterialContractV1
         Qa04ReferenceScenariosV1.ValidateCanonicalContract();
         Qa04ReferenceWorldDependencyContractV1.ValidateCanonicalContract();
         Qa04ParticipationControlModeCanonicalAuthorityV1.ValidateCanonicalContract();
+        Qa04InfrastructureReferenceDecompositionV1.ValidateCanonicalContract();
 
         if (BindingsValue.Count != Qa04ReferenceLoadV1.RecordClasses.Count)
             throw new InvalidDataException("qa04.material.binding-count-mismatch");
@@ -158,6 +156,12 @@ public static class Qa04ReferenceWorldMaterialContractV1
             societyGovernance.CanonicalCount != 2_000_000)
             throw new InvalidDataException("qa04.material.society-governance-binding-drift");
 
+        var infrastructure = Get(new StableToken("infrastructure.active-record"));
+        if (!infrastructure.ProductionMaterializerAvailable ||
+            infrastructure.PrimaryPartitionId is not null ||
+            infrastructure.CanonicalCount != Qa04InfrastructureReferenceDecompositionV1.CanonicalCount)
+            throw new InvalidDataException("qa04.material.infrastructure-binding-drift");
+
         var terrain = Get(new StableToken("spatial.hot-terrain-brick"));
         if (!terrain.ProductionMaterializerAvailable ||
             terrain.PrimaryPartitionId?.Value != "spatial.terrain_geometry" ||
@@ -169,8 +173,8 @@ public static class Qa04ReferenceWorldMaterialContractV1
             !Get(new StableToken("transaction.active-cross-domain")).ProductionMaterializerAvailable)
             throw new InvalidDataException("qa04.material.implemented-binding-regressed");
 
-        if (AllProductionMaterializersAvailable)
-            throw new InvalidDataException("qa04.material.contract-unexpectedly-complete");
+        if (!AllProductionMaterializersAvailable || BlockingFailureCodes.Count != 0)
+            throw new InvalidDataException("qa04.material.contract-not-complete");
     }
 
     public static void RequireAllProductionMaterializersAvailable()
