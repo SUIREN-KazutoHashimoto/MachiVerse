@@ -37,8 +37,8 @@ public sealed class Qa04PhysicalD0PropertyAssetSupportMaterializationV1
 
 /// <summary>
 /// Production support authority approved in #240 for the first 50,000 Physical D0 records consumed
-/// by the PropertyRight benchmark slice. This intentionally does not define Physical ordinals
-/// 50,000..499,999 or a general Spatial frame hierarchy.
+/// by the PropertyRight benchmark slice. It does not define Physical ordinals 50,000..499,999 or a
+/// general Spatial frame hierarchy.
 /// </summary>
 public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
 {
@@ -63,25 +63,17 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
         Qa04TerrainCanonicalContentSourceV1.ValidateCanonicalContract();
         Qa04PhysicalD0MaterializerV1.ValidateCanonicalContract();
 
-        if (CanonicalPhysicalCount != 50_000 ||
-            CanonicalPhysicalCount > 100_000 ||
+        if (CanonicalPhysicalCount != 50_000 || CanonicalPhysicalCount > 100_000 ||
             CanonicalPhysicalCount > Qa04ReferenceWorldMaterializerV1.CanonicalResidentCount ||
-            CanonicalTileFrameCount != 4_096 ||
-            Qa04ReferenceLoadV1.RegionalTileCount != CanonicalTileFrameCount ||
+            CanonicalTileFrameCount != 4_096 || Qa04ReferenceLoadV1.RegionalTileCount != CanonicalTileFrameCount ||
             Qa04TerrainCanonicalContentSourceV1.TileWidthMm != 512_000 ||
-            TileFrameKind.Value != "perf.world-aligned-tile-frame" ||
-            PresenceMode.Value != "perf.free-moving")
+            TileFrameKind.Value != "perf.world-aligned-tile-frame" || PresenceMode.Value != "perf.free-moving")
             throw new InvalidDataException("qa04.physical.property-asset-support-contract-drift");
 
-        var physicalCount = Qa04ReferenceLoadV1.RecordClasses
-            .Single(entry => entry.ClassToken == PhysicalReferenceClass)
-            .Count;
-        if (physicalCount != Qa04PhysicalD0MaterializerV1.CanonicalPhysicalCount ||
-            CanonicalPhysicalCount > physicalCount)
+        var physicalCount = Qa04ReferenceLoadV1.RecordClasses.Single(entry => entry.ClassToken == PhysicalReferenceClass).Count;
+        if (physicalCount != Qa04PhysicalD0MaterializerV1.CanonicalPhysicalCount || CanonicalPhysicalCount > physicalCount)
             throw new InvalidDataException("qa04.physical.property-asset-support-physical-count-drift");
-
-        var frameIdentity = StandardDomainPartitionRegistry.Get(SpatialWorldFramePayloadV1.PartitionId);
-        if (frameIdentity.OwnerDomain.Value != "spatial")
+        if (StandardDomainPartitionRegistry.Get(SpatialWorldFramePayloadV1.PartitionId).OwnerDomain.Value != "spatial")
             throw new InvalidDataException("qa04.physical.property-asset-support-frame-owner-drift");
     }
 
@@ -94,7 +86,7 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
             SpatialDomain,
             Qa04SpatialTileScopeAuthorityV1.ScopeId(tileIndex),
             TileFrameCreationKind,
-            ordinal: 0);
+            localOrdinal: 0);
     }
 
     public static PartitionRecordRefV1 TileFrameRef(ushort tileIndex)
@@ -121,8 +113,8 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
     public static Qa04PhysicalD0PropertyAssetSupportMaterializationV1 MaterializeCanonical()
     {
         ValidateCanonicalContract();
-
         var references = new CanonicalReferenceResolver();
+
         var tileScopes = Qa04SpatialTileScopeAuthorityV1.MaterializeCanonical();
         foreach (var scope in tileScopes.RecordsCanonical)
             references.Add(new PartitionRecordRefV1(SpatialScopeRegistryPayloadV1.PartitionId, scope.RecordId), scope.RecordSchema);
@@ -132,10 +124,6 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
         for (ushort tile = 0; tile < CanonicalTileFrameCount; tile++)
         {
             var frame = CreateCanonicalTileFrameValidated(tile);
-            new StandardDomainPayloadCodecValidatorV1().Validate(
-                SpatialWorldFramePayloadV1.PartitionId,
-                frame.Payload.ToStandardPayload(),
-                references);
             ValidateCanonicalTileFrameRecord(tile, frame, references);
             frameRecords[tile] = frame;
             references.Add(new PartitionRecordRefV1(SpatialWorldFramePayloadV1.PartitionId, frame.RecordId), frame.RecordSchema);
@@ -147,16 +135,13 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
         for (ulong ordinal = 0; ordinal < CanonicalPhysicalCount; ordinal++)
         {
             var resident = Qa04ReferenceWorldMaterializerV1.CreateResidentRecord(ordinal);
-            references.Add(
-                new PartitionRecordRefV1(ResidentIdentityLifecyclePayloadV1.PartitionId, resident.RecordId),
-                resident.RecordSchema);
+            references.Add(new PartitionRecordRefV1(ResidentIdentityLifecyclePayloadV1.PartitionId, resident.RecordId), resident.RecordSchema);
         }
 
         var terrainBindings = new Qa04PhysicalTerrainRootBindingV1[CanonicalTileFrameCount];
         for (ushort tile = 0; tile < CanonicalTileFrameCount; tile++)
         {
             var terrain = CreateCanonicalTerrainBindingValidated(tile);
-            ValidateCanonicalTerrainBinding(tile, terrain);
             terrainBindings[tile] = terrain;
             references.Add(terrain.TerrainRootRef, SpatialTerrainGeometryRecordSchemaV2.RecordSchema);
         }
@@ -172,36 +157,24 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
 
         foreach (var material in physical)
         {
-            references.Add(
-                new PartitionRecordRefV1(PhysicalPresencePayloadV1.PartitionId, material.Presence.RecordId),
-                material.Presence.RecordSchema);
-            references.Add(
-                new PartitionRecordRefV1(PhysicalOccupancyRecordSchemaV2.PartitionId, material.Occupancy.RecordId),
-                material.Occupancy.RecordSchema);
-            references.Add(
-                new PartitionRecordRefV1(PhysicalOccupancyRecordSchemaV2.PartitionId, material.CollisionShape.RecordId),
-                material.CollisionShape.RecordSchema);
+            references.Add(new PartitionRecordRefV1(PhysicalPresencePayloadV1.PartitionId, material.Presence.RecordId), material.Presence.RecordSchema);
+            references.Add(new PartitionRecordRefV1(PhysicalOccupancyRecordSchemaV2.PartitionId, material.Occupancy.RecordId), material.Occupancy.RecordSchema);
+            references.Add(new PartitionRecordRefV1(PhysicalOccupancyRecordSchemaV2.PartitionId, material.CollisionShape.RecordId), material.CollisionShape.RecordSchema);
         }
 
         for (ulong ordinal = 0; ordinal < CanonicalPhysicalCount; ordinal++)
             ValidateCanonicalPhysicalRecord(ordinal, physical[checked((int)ordinal)], references, terrainBindings);
         ValidatePhysicalPopulation(physical);
 
-        var presenceIdentity = StandardDomainPartitionRegistry.Get(PhysicalPresencePayloadV1.PartitionId);
         var presences = new DomainPartitionStateV1<PhysicalPresencePayloadV1>(
-            presenceIdentity,
+            StandardDomainPartitionRegistry.Get(PhysicalPresencePayloadV1.PartitionId),
             physical.Select(static material => material.Presence));
         if (presences.ItemCount != CanonicalPhysicalCount)
             throw new InvalidDataException("qa04.physical.property-asset-support-presence-count-drift");
 
         return new Qa04PhysicalD0PropertyAssetSupportMaterializationV1(
-            tileScopes,
-            tileFrames,
-            Array.AsReadOnly(frameRecords),
-            presences,
-            Array.AsReadOnly(physical),
-            Array.AsReadOnly(terrainBindings),
-            references);
+            tileScopes, tileFrames, Array.AsReadOnly(frameRecords), presences,
+            Array.AsReadOnly(physical), Array.AsReadOnly(terrainBindings), references);
     }
 
     public static void ValidateCanonicalTileFrameRecord(
@@ -214,9 +187,7 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
         if (tileIndex >= CanonicalTileFrameCount) throw new ArgumentOutOfRangeException(nameof(tileIndex));
 
         var identity = StandardDomainPartitionRegistry.Get(SpatialWorldFramePayloadV1.PartitionId);
-        var expectedScope = Qa04SpatialTileScopeAuthorityV1.ScopeRef(tileIndex);
-        if (record.RecordId != TileFrameId(tileIndex) ||
-            record.RecordSchema != identity.RecordSchema ||
+        if (record.RecordId != TileFrameId(tileIndex) || record.RecordSchema != identity.RecordSchema ||
             record.Revision != 1 || record.CreatedStep != 0 || record.RetiredStep is not null ||
             record.DetailLevel != DetailLevelV1.D2RegionalAggregate || record.LineageRef is not null)
             throw new InvalidDataException("qa04.physical.property-asset-support-frame-envelope-drift");
@@ -224,23 +195,18 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
         var payload = record.Payload;
         if (payload.FrameKind != TileFrameKind || payload.ParentFrame is not null ||
             payload.Translation != ZeroVector || payload.Rotation != IdentityOrientation ||
-            payload.ValidScope != expectedScope || payload.TransformRevision != 1)
+            payload.ValidScope != Qa04SpatialTileScopeAuthorityV1.ScopeRef(tileIndex) || payload.TransformRevision != 1)
             throw new InvalidDataException("qa04.physical.property-asset-support-frame-payload-drift");
 
         new StandardDomainPayloadCodecValidatorV1().Validate(
-            SpatialWorldFramePayloadV1.PartitionId,
-            payload.ToStandardPayload(),
-            references);
+            SpatialWorldFramePayloadV1.PartitionId, payload.ToStandardPayload(), references);
     }
 
-    public static void ValidateCanonicalTerrainBinding(
-        ushort tileIndex,
-        Qa04PhysicalTerrainRootBindingV1 binding)
+    public static void ValidateCanonicalTerrainBinding(ushort tileIndex, Qa04PhysicalTerrainRootBindingV1 binding)
     {
         ArgumentNullException.ThrowIfNull(binding);
         if (tileIndex >= CanonicalTileFrameCount) throw new ArgumentOutOfRangeException(nameof(tileIndex));
-        var expected = CreateCanonicalTerrainBindingValidated(tileIndex);
-        if (binding != expected)
+        if (binding != CreateCanonicalTerrainBindingValidated(tileIndex))
             throw new InvalidDataException("qa04.physical.property-asset-support-terrain-binding-drift");
     }
 
@@ -282,22 +248,18 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
             material.Occupancy.Revision != 1 || material.CollisionShape.Revision != 1 ||
             material.Occupancy.CreatedStep != 0 || material.CollisionShape.CreatedStep != 0 ||
             material.Occupancy.RetiredStep is not null || material.CollisionShape.RetiredStep is not null ||
-            material.Occupancy.DetailLevel != DetailLevelV1.D0Entity ||
-            material.CollisionShape.DetailLevel != DetailLevelV1.D0Entity)
+            material.Occupancy.DetailLevel != DetailLevelV1.D0Entity || material.CollisionShape.DetailLevel != DetailLevelV1.D0Entity)
             throw new InvalidDataException("qa04.physical.property-asset-support-occupancy-envelope-drift");
 
         new StandardDomainPayloadCodecValidatorV1().Validate(
-            PhysicalPresencePayloadV1.PartitionId,
-            payload.ToStandardPayload(),
-            references);
+            PhysicalPresencePayloadV1.PartitionId, payload.ToStandardPayload(), references);
 
         if (material.CollisionShape.Payload is PhysicalTerrainSdfRefShapePayloadV2 terrainShape)
         {
             var expectedTerrain = terrainBindings[descriptor.RegionalTileIndex];
             if (terrainShape.TerrainRootRef != expectedTerrain.TerrainRootRef ||
                 material.Occupancy.Payload is not PhysicalOccupancyStatePayloadV2 occupancy ||
-                occupancy.AabbMin != expectedTerrain.OccupancyAabbMin ||
-                occupancy.AabbMax != expectedTerrain.OccupancyAabbMax)
+                occupancy.AabbMin != expectedTerrain.OccupancyAabbMin || occupancy.AabbMax != expectedTerrain.OccupancyAabbMax)
                 throw new InvalidDataException("qa04.physical.property-asset-support-terrain-sdf-drift");
         }
     }
@@ -340,20 +302,11 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
         if (tileIndex >= CanonicalTileFrameCount) throw new ArgumentOutOfRangeException(nameof(tileIndex));
         var identity = StandardDomainPartitionRegistry.Get(SpatialWorldFramePayloadV1.PartitionId);
         return new DomainRecordEnvelopeV1<SpatialWorldFramePayloadV1>(
-            TileFrameId(tileIndex),
-            identity.RecordSchema,
-            revision: 1,
-            createdStep: 0,
-            retiredStep: null,
-            DetailLevelV1.D2RegionalAggregate,
-            lineageRef: null,
+            TileFrameId(tileIndex), identity.RecordSchema, revision: 1, createdStep: 0, retiredStep: null,
+            DetailLevelV1.D2RegionalAggregate, lineageRef: null,
             new SpatialWorldFramePayloadV1(
-                TileFrameKind,
-                ParentFrame: null,
-                ZeroVector,
-                IdentityOrientation,
-                Qa04SpatialTileScopeAuthorityV1.ScopeRef(tileIndex),
-                TransformRevision: 1));
+                TileFrameKind, ParentFrame: null, ZeroVector, IdentityOrientation,
+                Qa04SpatialTileScopeAuthorityV1.ScopeRef(tileIndex), TransformRevision: 1));
     }
 
     private static Qa04PhysicalPresenceGenesisBindingV1 CreateCanonicalPresenceBindingValidated(ulong physicalOrdinal)
@@ -375,12 +328,8 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
         return new Qa04PhysicalPresenceGenesisBindingV1(
             new PartitionRecordRefV1(ResidentIdentityLifecyclePayloadV1.PartitionId, resident.RecordId),
             TileFrameRef(descriptor.RegionalTileIndex),
-            new Vec3Int64V1(x, y, z),
-            IdentityOrientation,
-            ZeroVector,
-            ZeroVector,
-            ContainmentRef: null,
-            PresenceMode);
+            new Vec3Int64V1(x, y, z), IdentityOrientation, ZeroVector, ZeroVector,
+            ContainmentRef: null, PresenceMode);
     }
 
     private static Qa04PhysicalTerrainRootBindingV1 CreateCanonicalTerrainBindingValidated(ushort tileIndex)
@@ -391,8 +340,7 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
             tile.Root.Payload is not SpatialTerrainRootPayloadV2 root ||
             root.ScopeRef != Qa04SpatialTileScopeAuthorityV1.ScopeRef(tileIndex) ||
             tile.Anchor.RecordId != Qa04TerrainRootMaterializerV1.AnchorId(tileIndex) ||
-            tile.Anchor.Payload is not SpatialTerrainBrickPayloadV2 anchor ||
-            anchor.Level != 3)
+            tile.Anchor.Payload is not SpatialTerrainBrickPayloadV2 anchor || anchor.Level != 3)
             throw new InvalidDataException("qa04.physical.property-asset-support-terrain-authority-drift");
 
         var spacing = checked((long)anchor.SampleSpacingMm);
@@ -401,14 +349,9 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
             checked((long)anchor.CellOrigin.Y * spacing),
             checked((long)anchor.CellOrigin.Z * spacing));
         var width = checked((long)TerrainBrickV1.CellsPerAxis * spacing);
-        var max = new Vec3Int64V1(
-            checked(min.X + width),
-            checked(min.Y + width),
-            checked(min.Z + width));
+        var max = new Vec3Int64V1(checked(min.X + width), checked(min.Y + width), checked(min.Z + width));
         return new Qa04PhysicalTerrainRootBindingV1(
-            new PartitionRecordRefV1(SpatialTerrainGeometryRecordSchemaV2.PartitionId, tile.Root.RecordId),
-            min,
-            max);
+            new PartitionRecordRefV1(SpatialTerrainGeometryRecordSchemaV2.PartitionId, tile.Root.RecordId), min, max);
     }
 
     private static string ShapeKind(PhysicalOccupancyRecordPayloadV2 payload)
@@ -442,7 +385,6 @@ public static class Qa04PhysicalD0PropertyAssetSupportCanonicalAuthorityV1
         }
 
         public bool Exists(PartitionRecordRefV1 reference) => _records.ContainsKey(reference);
-
         public bool TryGetRecordSchema(PartitionRecordRefV1 reference, out SchemaRefV1 schema)
             => _records.TryGetValue(reference, out schema);
     }
