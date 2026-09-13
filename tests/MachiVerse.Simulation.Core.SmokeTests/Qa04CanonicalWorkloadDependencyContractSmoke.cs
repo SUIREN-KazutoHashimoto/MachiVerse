@@ -11,20 +11,13 @@ internal static class Qa04CanonicalWorkloadDependencyContractSmoke
         Qa04CanonicalWorkloadDependencyContractV1.ValidateCanonicalContract();
         Qa04CanonicalTransactionKindBindingV1.ValidateCanonicalContract();
 
-        Require(Qa04CanonicalWorkloadDependencyContractV1.Blockers.Count == 1,
-            "QA-04 canonical workload dependency count drifted.");
-
-        var expected = new[]
-        {
-            ("workload.operation.authority-binding", Qa04CanonicalWorkloadDependencyKindV1.OperationAuthorityBinding,
-                "qa04.workload.operation-authority-binding-undefined"),
-        };
-
-        var actual = Qa04CanonicalWorkloadDependencyContractV1.Blockers
-            .Select(static blocker => (blocker.DependencyId.Value, blocker.Kind, blocker.FailureCode.Value))
-            .ToArray();
-        Require(actual.SequenceEqual(expected),
-            "QA-04 canonical workload dependency identity/kind/failure-code drifted.");
+        Require(Qa04CanonicalWorkloadDependencyContractV1.Blockers.Count == 0,
+            "QA-04 canonical workload dependency blockers must be fully closed.");
+        Require(Qa04CanonicalWorkloadDependencyContractV1.FailureCodes.Count == 0,
+            "QA-04 canonical workload dependency failure-code surface must be empty after closure.");
+        Require(Qa04CanonicalOperationBindingV1.BoundFamilies.Count == 6 &&
+                Qa04CanonicalOperationBindingV1.PendingAuthorityFamilies.Count == 0,
+            "QA-04 canonical workload must bind all six Operation families.");
 
         var worldCodes = Qa04ReferenceWorldDependencyContractV1.FailureCodes
             .Select(static code => code.Value)
