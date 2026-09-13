@@ -8,7 +8,6 @@ internal static class Program
     private const string PersistenceProfile = "perf.persistence.v1";
     private const string PublicationProfile = "perf.publication.v1";
     private const string SoakProfile = "performance.soak.24h";
-    private const string IncompleteCode = "qa04.target.reference-world-not-materialized";
     private const string StepLoopCode = "qa04.target.authoritative-step-loop-not-assembled";
 
     private static readonly JsonSerializerOptions Json = new()
@@ -84,10 +83,12 @@ internal static class Program
             !string.Equals(probe.ProfileId, ReferenceProfile, StringComparison.Ordinal) ||
             probe.WorkerCount != run.WorkerCount ||
             probe.DomainCount != 8 ||
-            !probe.WorkerCountAppliedToDomainExecutor)
-            throw new InvalidDataException("Simulation Core worker probe did not prove the requested worker count reached domain execution.");
+            !probe.WorkerCountAppliedToDomainExecutor ||
+            !probe.ReferenceWorldMaterialized ||
+            probe.ReleaseEvidenceCapable)
+            throw new InvalidDataException("Simulation Core worker probe did not prove the requested worker count and reference-world readiness boundary.");
 
-        var failures = MergeFailures(probe.BlockingFailureCodes, IncompleteCode, StepLoopCode);
+        var failures = MergeFailures(probe.BlockingFailureCodes, StepLoopCode);
         return NewResponse(
             request,
             "performance-benchmark-report-v1",
@@ -132,7 +133,7 @@ internal static class Program
     {
         RequireProfile(request, PersistenceProfile);
         var inspection = await InspectCoreAsync(coreExecutable);
-        var failures = MergeFailures(inspection.BlockingFailureCodes, IncompleteCode, "qa04.target.persistence-stress-not-assembled");
+        var failures = MergeFailures(inspection.BlockingFailureCodes, "qa04.target.persistence-stress-not-assembled");
         return NewResponse(
             request,
             "persistence-stress-report-v1",
@@ -156,7 +157,7 @@ internal static class Program
     {
         RequireProfile(request, PublicationProfile);
         var inspection = await InspectCoreAsync(coreExecutable);
-        var failures = MergeFailures(inspection.BlockingFailureCodes, IncompleteCode, "qa04.target.publication-stress-not-assembled");
+        var failures = MergeFailures(inspection.BlockingFailureCodes, "qa04.target.publication-stress-not-assembled");
         return NewResponse(
             request,
             "publication-stress-report-v1",
@@ -169,8 +170,8 @@ internal static class Program
             {
                 profile_id = PublicationProfile,
                 gateway_count = 0,
-                view_subscribers = 0,
-                slow_consumers = 0,
+                view_subscribers = 100,
+                slow_consumers = 10,
                 slow_consumers_did_not_block_custody_or_result = false,
                 continuity_after_coalesce_resync = false,
                 failure_codes = failures,
@@ -181,7 +182,7 @@ internal static class Program
     {
         RequireProfile(request, SoakProfile);
         var inspection = await InspectCoreAsync(coreExecutable);
-        var failures = MergeFailures(inspection.BlockingFailureCodes, IncompleteCode, "qa04.target.soak-not-assembled");
+        var failures = MergeFailures(inspection.BlockingFailureCodes, "qa04.target.soak-not-assembled");
         return NewResponse(
             request,
             "soak-report-v1",
@@ -214,10 +215,13 @@ internal static class Program
         if (!string.Equals(inspection.SchemaVersion, "1.0", StringComparison.Ordinal) ||
             !string.Equals(inspection.ProfileId, ReferenceProfile, StringComparison.Ordinal) ||
             inspection.StandardDomainCount != 8 || inspection.StandardPartitionCount != 97 ||
-            inspection.ReferenceWorldMaterialized || inspection.AuthoritativeStepLoopAvailable || inspection.ReleaseEvidenceCapable)
+            !inspection.ReferenceWorldMaterialized || inspection.AuthoritativeStepLoopAvailable || inspection.ReleaseEvidenceCapable)
             throw new InvalidDataException("Simulation Core QA-04 target inspection boundary is inconsistent.");
         if (!inspection.CanonicalWorkerCounts.SequenceEqual(new[] { 1, 4, 8, 16 }))
             throw new InvalidDataException("Simulation Core QA-04 canonical worker set drifted.");
+        if (!inspection.BlockingFailureCodes.Contains(StepLoopCode, StringComparer.Ordinal) ||
+            inspection.BlockingFailureCodes.Contains("qa04.target.reference-world-not-materialized", StringComparer.Ordinal))
+            throw new InvalidDataException("Simulation Core QA-04 target blocking boundary drifted after reference-world completion.");
         return inspection;
     }
 
